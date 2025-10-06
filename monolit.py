@@ -26,7 +26,8 @@ except ImportError:
 
 # FastAPI
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Mordzix Monolit PRO", version="3.2.0")
@@ -35,6 +36,23 @@ app.add_middleware(
     allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
+
+# Static and uploads serving
+try:
+    STATIC_DIR = os.path.join(BASE_DIR, "static")
+    os.makedirs(STATIC_DIR, exist_ok=True)
+    os.makedirs(UPLOADS_DIR, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+except Exception as _e:
+    print(f"[WARN] static mount failed: {_e}")
+
+@app.get("/")
+def index_page():
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
+    return JSONResponse({"ok": False, "error": "index.html missing"}, status_code=404)
 
 # Writer Pro (opcjonalnie)
 try:

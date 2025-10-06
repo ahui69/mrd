@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <title>Asystent AI</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <button id="toggleSidebar" aria-label="Zwiń/rozwiń">☰</button>
+        <h1>Asystent</h1>
+      </div>
+      <div class="sidebar-actions">
+        <button id="newChat">Nowa rozmowa</button>
+        <button id="reloadPkg">Przeładuj pakiet</button>
+      </div>
+      <div id="historyList" class="history-list" aria-label="Archiwum rozmów"></div>
+      <div class="links">
+        <a href="/api/health" target="_blank">/api/health</a>
+        <a href="/static/" target="_blank">/static/</a>
+        <a href="/uploads/" target="_blank">/uploads/</a>
+      </div>
+    </aside>
+    <main id="main">
+      <div id="chat" class="chat" aria-live="polite" aria-busy="false"></div>
+      <form id="composer" autocomplete="off">
+        <label class="file">
+          <input id="fileInput" type="file" multiple accept="image/*,video/*,.pdf,.txt,.md,.doc,.docx,.xls,.xlsx,.csv" />
+          📎
+        </label>
+        <input id="message" type="text" inputmode="text" placeholder="Napisz wiadomość..." aria-label="Wiadomość" />
+        <button type="button" id="mic" aria-label="Mikrofon">🎤</button>
+        <button type="submit" id="send">Wyślij</button>
+      </form>
+      <div id="typing" class="typing hidden" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+    </main>
+  </div>
+  <script src="/static/app.js" type="module"></script>
+</body>
+</html>

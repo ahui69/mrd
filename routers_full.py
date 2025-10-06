@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 import os, time, typing as T
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
 import monolit as M
 
@@ -290,3 +290,49 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
         "news": news_items,
         "sports": sports if sports else None,
     }
+
+# --- FILES ---
+@router.post("/files/upload")
+async def files_upload(files: T.List[UploadFile] = File(...), _=Depends(_auth)):
+    saved = []
+    os.makedirs(M.UPLOADS_DIR, exist_ok=True)
+    for f in files or []:
+        try:
+            name = (f.filename or "file").replace("..",".").replace("/","_")
+            path = os.path.join(M.UPLOADS_DIR, name)
+            with open(path, "wb") as out:
+                out.write(await f.read())
+            saved.append({
+                "name": name,
+                "size": os.path.getsize(path),
+                "url": f"/uploads/{name}",
+            })
+        except Exception as e:
+            saved.append({"name": f.filename, "error": str(e)})
+    return {"ok": True, "files": saved}
+
+# --- STT (Whisper via OpenAI-compatible API) ---
+@router.post("/stt/transcribe")
+async def stt_transcribe(audio: UploadFile = File(...), lang: str = "pl", _=Depends(_auth)):
+    import httpx
+    api = (M.LLM_BASE_URL or "").rstrip("/")
+    key = M.LLM_API_KEY or os.getenv("LLM_API_KEY", "")
+    if not api or not key:
+        raise HTTPException(400, "LLM_BASE_URL or LLM_API_KEY missing")
+    url = f"{api}/audio/transcriptions"
+    data = {
+        "model": (None, "whisper-large-v3"),
+        "language": (None, lang),
+        "response_format": (None, "json")
+    }
+    files = {"file": (audio.filename or "audio.webm", await audio.read(), audio.content_type or "audio/webm")}
+    headers = {"Authorization": f"Bearer {key}"}
+    async with httpx.AsyncClient(timeout=60.0) as c:
+        try:
+            r = await c.post(url, headers=headers, data=data, files=files)
+            r.raise_for_status()
+            j = r.json()
+            text = j.get("text") or j.get("result") or ""
+            return {"ok": True, "text": text}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
