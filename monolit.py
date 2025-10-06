@@ -93,6 +93,14 @@ try:
 except Exception as e:
     print(f"[WARN] travel_endpoint not found: {e}")
 
+# Admin Endpoint (cache, rate limits)
+try:
+    import admin_endpoint
+    app.include_router(admin_endpoint.router)
+    print("[OK] Admin endpoint loaded - /api/admin/*")
+except Exception as e:
+    print(f"[WARN] admin_endpoint not found: {e}")
+
 # Memory (opcjonalnie)
 try:
     from memory import (

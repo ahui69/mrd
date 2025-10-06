@@ -6,9 +6,10 @@ Ogarnnia wszystko automatycznie: STM, LTM, research, semantykę
 """
 
 from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-import os, time, json
+import os, time, json, asyncio
 
 router = APIRouter(prefix="/api/chat")
 
@@ -109,7 +110,7 @@ def _call_llm(messages: List[Dict], **kwargs):
 
 # --- Main endpoint ---
 @router.post("/assistant", response_model=ChatResponse)
-async def chat_assistant(body: ChatRequest, _=Depends(_auth)):
+async def chat_assistant(body: ChatRequest, req: Request, _=Depends(_auth)):
     """
     🤖 ALL-IN-ONE CHAT ASSISTANT
     
@@ -133,6 +134,30 @@ async def chat_assistant(body: ChatRequest, _=Depends(_auth)):
     }
     ```
     """
+    
+    # Rate limiting
+    try:
+        from middleware import rate_limiter
+        user_id = body.user_id or req.client.host
+        allowed, retry_after = rate_limiter.check_limit(user_id, "llm")
+        if not allowed:
+            raise HTTPException(429, f"Rate limit exceeded. Retry after {retry_after}s")
+    except ImportError:
+        pass
+    
+    # Check cache
+    cache_key_params = {
+        "messages": [{"role": m.role, "content": m.content} for m in body.messages],
+        "user_id": body.user_id
+    }
+    try:
+        from middleware import llm_cache
+        cached = llm_cache.get("assistant", cache_key_params)
+        if cached and not body.use_research:  # Don't cache research queries
+            cached["from_cache"] = True
+            return cached
+    except ImportError:
+        pass
     
     start_time = time.time()
     context_used = {
@@ -269,44 +294,123 @@ async def chat_assistant(body: ChatRequest, _=Depends(_auth)):
         "timestamp": int(time.time())
     }
     
-    return ChatResponse(
+    response = ChatResponse(
         ok=True,
         answer=answer,
         sources=sources,
         context_used=context_used,
         metadata=metadata
     )
+    
+    # Cache response
+    try:
+        from middleware import llm_cache
+        if not body.use_research:  # Only cache non-research
+            llm_cache.set("assistant", cache_key_params, response.dict())
+    except ImportError:
+        pass
+    
+    return response
 
-# === STREAMING VERSION (bonus) ===
-from fastapi.responses import StreamingResponse
-import asyncio
-
+# === STREAMING VERSION ===
 @router.post("/assistant/stream")
-async def chat_assistant_stream(body: ChatRequest, _=Depends(_auth)):
+async def chat_assistant_stream(body: ChatRequest, req: Request, _=Depends(_auth)):
     """
     🤖 STREAMING CHAT ASSISTANT
-    Jak /assistant ale ze streamingiem odpowiedzi (Server-Sent Events)
+    Server-Sent Events (SSE) - real-time streaming response
+    
+    Use with EventSource in browser:
+    ```javascript
+    const es = new EventSource('/api/chat/assistant/stream');
+    es.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.type === 'chunk') {
+            console.log(data.content);
+        }
+    };
+    ```
     """
     
+    # Rate limiting
+    try:
+        from middleware import rate_limiter
+        user_id = body.user_id or req.client.host
+        allowed, retry_after = rate_limiter.check_limit(user_id, "llm")
+        if not allowed:
+            raise HTTPException(429, f"Rate limit exceeded. Retry after {retry_after}s")
+    except ImportError:
+        pass
+    
     async def generate():
-        # TODO: Implementacja streaming response
-        # Na razie zwraca normalną odpowiedź jako chunk
-        result = await chat_assistant(body, _=None)
-        
-        # SSE format
-        yield f"data: {json.dumps({'type': 'start'})}\n\n"
-        
-        # Odpowiedź w chunkach (symulacja)
-        answer = result.answer
-        chunk_size = 50
-        for i in range(0, len(answer), chunk_size):
-            chunk = answer[i:i+chunk_size]
-            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-            await asyncio.sleep(0.05)  # Symulacja opóźnienia
-        
-        # Metadata na końcu
-        yield f"data: {json.dumps({'type': 'sources', 'sources': result.sources})}\n\n"
-        yield f"data: {json.dumps({'type': 'end', 'metadata': result.metadata})}\n\n"
+        try:
+            # Start event
+            yield f"data: {json.dumps({'type': 'start', 'timestamp': time.time()})}\n\n"
+            
+            # Get context (same as non-streaming)
+            user_messages = [m for m in body.messages if m.role == "user"]
+            last_user_msg = user_messages[-1].content if user_messages else ""
+            
+            # STM
+            stm_context = ""
+            if body.use_memory:
+                stm_msgs = _get_stm_context(limit=body.max_context_messages)
+                if stm_msgs:
+                    stm_context = "\n".join([f"{m.get('role', 'user')}: {m.get('content', '')}" for m in stm_msgs[-body.max_context_messages:]])
+            
+            # Send progress
+            yield f"data: {json.dumps({'type': 'progress', 'step': 'memory_loaded'})}\n\n"
+            
+            # LTM
+            ltm_context = ""
+            if body.use_memory and last_user_msg:
+                ltm_facts = _get_ltm_context(last_user_msg, limit=8)
+                if ltm_facts:
+                    ltm_context = "\n".join([f"- {f.get('text', '')}" for f in ltm_facts if f.get('text')])
+            
+            yield f"data: {json.dumps({'type': 'progress', 'step': 'knowledge_loaded'})}\n\n"
+            
+            # Build system message
+            system_parts = ["Jesteś pomocnym asystentem AI."]
+            if stm_context:
+                system_parts.append(f"\n📜 HISTORIA:\n{stm_context}")
+            if ltm_context:
+                system_parts.append(f"\n💾 WIEDZA:\n{ltm_context}")
+            
+            system_message = "\n".join(system_parts)
+            
+            # Prepare messages
+            llm_messages = [{"role": "system", "content": system_message}]
+            for msg in body.messages:
+                llm_messages.append({"role": msg.role, "content": msg.content})
+            
+            # Call LLM
+            yield f"data: {json.dumps({'type': 'progress', 'step': 'generating'})}\n\n"
+            
+            llm_response = _call_llm(llm_messages)
+            if isinstance(llm_response, dict):
+                answer = llm_response.get("text", "") or llm_response.get("content", "")
+            else:
+                answer = str(llm_response)
+            
+            # Stream answer in chunks
+            chunk_size = 30
+            for i in range(0, len(answer), chunk_size):
+                chunk = answer[i:i+chunk_size]
+                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                await asyncio.sleep(0.03)  # Small delay for streaming effect
+            
+            # Save to memory
+            if body.save_to_memory:
+                if last_user_msg:
+                    _save_to_stm("user", last_user_msg)
+                if answer:
+                    _save_to_stm("assistant", answer)
+            
+            # End event with metadata
+            yield f"data: {json.dumps({'type': 'complete', 'answer': answer, 'length': len(answer)})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
     return StreamingResponse(
         generate(),
@@ -314,6 +418,7 @@ async def chat_assistant_stream(body: ChatRequest, _=Depends(_auth)):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         }
     )
 
