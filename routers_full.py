@@ -25,6 +25,16 @@ class ChatBody(BaseModel):
     messages: T.List[ChatMsg]
     options: T.Dict[str, T.Any] = {}
 
+class AssistantBody(BaseModel):
+    user: T.Optional[str] = "user"
+    messages: T.List[ChatMsg]
+    # preferencje i flage narzędzi
+    allow_research: bool = True
+    allow_news: bool = True
+    allow_sports: bool = True
+    save_memory: bool = True
+    topk: int = 8
+
 # --- HEALTH ---
 @router.get("/health")
 def health():
@@ -176,3 +186,107 @@ def semantic_enhance(body: T.Dict[str,T.Any], _=Depends(_auth)):
     if not hasattr(M, "semantic_enhance_response"):
         raise HTTPException(500, "semantic_enhance_response() not available")
     return {"ok": True, **M.semantic_enhance_response(body.get("answer",""), body.get("context",""))}
+
+# --- ASSISTANT: jeden endpoint do wszystkiego ---
+@router.post("/assistant/chat")
+async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
+    if not hasattr(M, "call_llm"):
+        raise HTTPException(500, "call_llm() not available")
+
+    # 1) wyciągnij ostatnią wiadomość użytkownika
+    msgs = [{"role": m.role, "content": m.content} for m in body.messages]
+    last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "").strip()
+
+    # 2) STM kontekst (krótkoterminowy)
+    stm_ctx = ""
+    if hasattr(M, "stm_get_context"):
+        try:
+            stm = M.stm_get_context(limit=8) or []
+            if stm:
+                stm_ctx = "\n".join([f"{m['role']}: {m['content']}" for m in stm])
+        except:
+            pass
+
+    # 3) Wykrywanie zamiaru (intent)
+    intent = "chat"
+    if last_user:
+        lu = last_user.lower()
+        if body.allow_news and any(w in lu for w in ("news", "wiadomości", "aktualności", "co nowego")):
+            intent = "news"
+        elif body.allow_sports and any(w in lu for w in ("wyniki", "mecz", "mecze", "liga", "score")):
+            intent = "sports"
+        elif body.allow_research and any(w in lu for w in ("wyszukaj", "źródła", "research", "źródło", "źrodła")):
+            intent = "research"
+
+    # 4) Narzędzia wg intencji
+    research_ctx, research_sources = "", []
+    news_items, sports = [], {}
+
+    if intent == "research" and hasattr(M, "autonauka") and last_user:
+        try:
+            r = await M.autonauka(last_user, topk=max(1, int(body.topk or 8)))
+            research_ctx = (r or {}).get("context", "")
+            research_sources = (r or {}).get("sources", []) or []
+        except:
+            pass
+
+    if intent == "news" and hasattr(M, "duck_news") and last_user:
+        try:
+            n = await M.duck_news(last_user, limit=max(5, min(15, body.topk)))
+            news_items = (n or {}).get("items", [])
+        except:
+            pass
+
+    if intent == "sports" and hasattr(M, "sports_scores"):
+        try:
+            # heurystyka: wyciągnij ligę ze słów kluczowych
+            league = "nba"
+            for key in ("nba","nfl","nhl","mlb","epl","laliga","seriea","bundesliga"):
+                if key in last_user.lower():
+                    league = key
+                    break
+            sports = M.sports_scores(league)
+        except:
+            pass
+
+    # 5) Zbuduj system prompt
+    sys_parts = []
+    if stm_ctx: sys_parts.append("STM:\n" + stm_ctx)
+    if research_ctx: sys_parts.append("RESEARCH:\n" + research_ctx)
+    if news_items:
+        lines = [f"- {it.get('title','')} — {it.get('url','')}" for it in news_items[:body.topk]]
+        sys_parts.append("NEWS:\n" + "\n".join(lines))
+    if sports and sports.get("ok"):
+        lines = []
+        for g in sports.get("games", [])[:body.topk]:
+            lines.append(f"{g['away']['abbr']} {g['away']['score']} : {g['home']['score']} {g['home']['abbr']} — {g['state']}")
+        if lines:
+            sys_parts.append("SPORTS:\n" + "\n".join(lines))
+
+    llm_messages: T.List[T.Dict[str,str]] = []
+    if sys_parts:
+        llm_messages.append({"role": "system", "content": "\n\n".join(sys_parts)})
+    llm_messages.extend(msgs)
+
+    # 6) LLM odpowiedź
+    out = M.call_llm(llm_messages)
+    answer = out.get("text") if isinstance(out, dict) else out
+
+    # 7) Memory update
+    if body.save_memory:
+        try:
+            if hasattr(M, "stm_add") and last_user:
+                M.stm_add("user", last_user)
+            if hasattr(M, "stm_add") and answer:
+                M.stm_add("assistant", answer)
+        except:
+            pass
+
+    return {
+        "ok": True,
+        "answer": answer,
+        "intent": intent,
+        "sources": research_sources,
+        "news": news_items,
+        "sports": sports if sports else None,
+    }
