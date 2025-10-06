@@ -3,7 +3,7 @@
 # Monolit PRO — Writer Pro + Autonauka + STM/LTM/Semantic/Stats
 
 import os, re, sys, time, json, uuid, sqlite3, asyncio, contextlib, subprocess, threading
-import datetime, html, unicodedata, dataclasses
+import datetime, html, unicodedata, dataclasses, hashlib, math, math
 from typing import Any, Dict, List, Tuple, Optional
 from urllib.parse import parse_qs, quote_plus, urlencode, urlparse
 from urllib.request import Request as UrlRequest, urlopen

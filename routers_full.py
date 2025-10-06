@@ -112,7 +112,23 @@ def search_answer(q: str, deep: bool = False, _=Depends(_auth)):
 def ltm_add_api(body: T.Dict[str, T.Any], _=Depends(_auth)):
     if not hasattr(M, "ltm_add"):
         raise HTTPException(500, "ltm_add() not available")
-    M.ltm_add(body.get("text",""), tags=body.get("tags",""), conf=float(body.get("conf",0.7)))
+    
+    text = body.get("text", "")
+    tags = body.get("tags", [])
+    source = body.get("source", "api")
+    conf = float(body.get("conf", 0.7))
+    
+    # Convert tags list to comma-separated string if needed
+    if isinstance(tags, list):
+        tags_str = ",".join(str(t) for t in tags)
+    else:
+        tags_str = str(tags)
+    
+    # Add source to tags
+    if source:
+        tags_str = f"{tags_str},{source}" if tags_str else source
+    
+    M.ltm_add(text, tags=tags_str, conf=conf)
     return {"ok": True}
 
 @router.get("/ltm/search")
