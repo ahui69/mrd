@@ -608,12 +608,59 @@
 
         <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
+        <!-- Settings Panel -->
+        <div class="settings-panel" id="settingsPanel">
+            <h2>Ustawienia</h2>
+            
+            <div class="settings-item">
+                <div class="settings-toggle">
+                    <span>Streaming (SSE)</span>
+                    <div class="toggle-switch active" id="streamingToggle" onclick="toggleStreaming()"></div>
+                </div>
+            </div>
+
+            <div class="settings-item">
+                <div class="settings-toggle">
+                    <span>Użyj pamięci</span>
+                    <div class="toggle-switch active" id="memoryToggle" onclick="toggleMemory()"></div>
+                </div>
+            </div>
+
+            <div class="settings-item">
+                <div class="settings-toggle">
+                    <span>Web Research</span>
+                    <div class="toggle-switch" id="researchToggle" onclick="toggleResearch()"></div>
+                </div>
+            </div>
+
+            <div class="settings-item">
+                <label>Rate Limit Status</label>
+                <div id="rateLimitStatus" style="font-size: 12px; padding: 8px; background: var(--bg-main); border-radius: 6px;">
+                    Ładowanie...
+                </div>
+            </div>
+
+            <div class="settings-item">
+                <label>Cache Stats</label>
+                <div id="cacheStats" style="font-size: 12px; padding: 8px; background: var(--bg-main); border-radius: 6px;">
+                    Ładowanie...
+                </div>
+            </div>
+
+            <button class="new-chat-btn" onclick="clearCache()" style="background: #FF3B30;">
+                🗑️ Wyczyść Cache
+            </button>
+        </div>
+
         <!-- Main Chat -->
         <div class="chat-container">
             <div class="chat-header">
                 <button class="menu-btn" onclick="toggleSidebar()">☰</button>
-                <div class="chat-title" id="chatTitle">AI Assistant</div>
-                <button class="settings-btn" onclick="showSettings()">⚙️</button>
+                <div class="chat-title" id="chatTitle">
+                    AI Assistant
+                    <span class="status-indicator" id="statusIndicator"></span>
+                </div>
+                <button class="settings-btn" onclick="toggleSettings()">⚙️</button>
             </div>
 
             <div class="messages" id="messages"></div>
@@ -648,12 +695,21 @@
         let attachments = [];
         let recognition = null;
         let isRecording = false;
+        
+        // Settings
+        let useStreaming = true;
+        let useMemory = true;
+        let useResearch = false;
+        let currentEventSource = null;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
             initSpeechRecognition();
             loadConversations();
             await loadKnowledgeBase();
+            loadSettings();
+            updateStats();
+            setInterval(updateStats, 30000); // Update every 30s
             newChat();
         });
 
@@ -804,44 +860,13 @@
             showTyping();
 
             try {
-                // Call API
                 const messages = getCurrentMessages();
-                const response = await fetch(`${API_BASE}/api/chat/assistant`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${API_TOKEN}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        messages: messages,
-                        use_memory: true,
-                        use_research: false,
-                        save_to_memory: true,
-                        user_id: currentConversationId
-                    })
-                });
-
-                hideTyping();
-
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.status}`);
-                }
-
-                const data = await response.json();
-
-                if (data.ok) {
-                    const assistantMessage = {
-                        role: 'assistant',
-                        content: data.answer,
-                        sources: data.sources || [],
-                        metadata: data.metadata || {},
-                        timestamp: Date.now()
-                    };
-
-                    addMessageToUI(assistantMessage);
-                    saveMessageToConversation(assistantMessage);
+                
+                // Use streaming or normal
+                if (useStreaming) {
+                    await sendMessageStreaming(messages);
                 } else {
-                    throw new Error('API returned ok:false');
+                    await sendMessageNormal(messages);
                 }
             } catch (error) {
                 hideTyping();
@@ -850,6 +875,244 @@
                     content: `Przepraszam, wystąpił błąd: ${error.message}`,
                     timestamp: Date.now()
                 });
+            }
+        }
+
+        async function sendMessageNormal(messages) {
+            const response = await fetch(`${API_BASE}/api/chat/assistant`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${API_TOKEN}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    messages: messages,
+                    use_memory: useMemory,
+                    use_research: useResearch,
+                    save_to_memory: true,
+                    user_id: currentConversationId
+                })
+            });
+
+            hideTyping();
+
+            if (response.status === 429) {
+                const data = await response.json();
+                throw new Error(`Rate limit! ${data.detail}`);
+            }
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            // Show cache indicator
+            if (data.from_cache) {
+                showCacheIndicator();
+            }
+
+            if (data.ok) {
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: data.answer,
+                    sources: data.sources || [],
+                    metadata: data.metadata || {},
+                    timestamp: Date.now()
+                };
+
+                addMessageToUI(assistantMessage);
+                saveMessageToConversation(assistantMessage);
+            } else {
+                throw new Error('API returned ok:false');
+            }
+        }
+
+        async function sendMessageStreaming(messages) {
+            // Close previous stream if any
+            if (currentEventSource) {
+                currentEventSource.close();
+            }
+
+            let streamedContent = '';
+            const startTime = Date.now();
+
+            // For SSE with POST, we need to use fetch with EventSource polyfill
+            // or send via GET with params - using simple approach here
+            const url = new URL(`${API_BASE}/api/chat/assistant/stream`);
+            
+            // Simple streaming with fetch
+            const response = await fetch(`${API_BASE}/api/chat/assistant/stream`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${API_TOKEN}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    messages: messages,
+                    use_memory: useMemory,
+                    use_research: useResearch,
+                    save_to_memory: true,
+                    user_id: currentConversationId
+                })
+            });
+
+            if (response.status === 429) {
+                hideTyping();
+                throw new Error('Rate limit exceeded!');
+            }
+
+            if (!response.ok) {
+                hideTyping();
+                throw new Error(`API error: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            
+            // Create message bubble for streaming
+            const messagesDiv = document.getElementById('messages');
+            hideTyping();
+            
+            const messageEl = document.createElement('div');
+            messageEl.className = 'message assistant';
+            messageEl.innerHTML = '<div class="message-bubble" id="streamingBubble"></div>';
+            messagesDiv.appendChild(messageEl);
+            
+            const bubble = document.getElementById('streamingBubble');
+
+            while (true) {
+                const {value, done} = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, {stream: true});
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            
+                            if (data.type === 'chunk') {
+                                streamedContent += data.content;
+                                bubble.textContent = streamedContent;
+                                scrollToBottom();
+                            } else if (data.type === 'complete') {
+                                streamedContent = data.answer;
+                                bubble.textContent = streamedContent;
+                                
+                                // Save to conversation
+                                const assistantMessage = {
+                                    role: 'assistant',
+                                    content: streamedContent,
+                                    timestamp: Date.now()
+                                };
+                                saveMessageToConversation(assistantMessage);
+                            } else if (data.type === 'error') {
+                                bubble.innerHTML = `<span style="color: red;">❌ ${data.message}</span>`;
+                            }
+                        } catch (e) {
+                            console.error('Parse error:', e);
+                        }
+                    }
+                }
+            }
+        }
+
+        function showCacheIndicator() {
+            const indicator = document.getElementById('statusIndicator');
+            indicator.textContent = '⚡ Cache';
+            indicator.className = 'status-indicator cached';
+            setTimeout(() => {
+                indicator.textContent = '';
+                indicator.className = 'status-indicator';
+            }, 3000);
+        }
+
+        function showRateLimitIndicator(retryAfter) {
+            const indicator = document.getElementById('statusIndicator');
+            indicator.textContent = `🛡️ Limit ${retryAfter}s`;
+            indicator.className = 'status-indicator rate-limit';
+            setTimeout(() => {
+                indicator.textContent = '';
+                indicator.className = 'status-indicator';
+            }, retryAfter * 1000);
+        }
+
+        // Settings functions
+        function toggleSettings() {
+            const panel = document.getElementById('settingsPanel');
+            const overlay = document.getElementById('sidebarOverlay');
+            panel.classList.toggle('open');
+            if (!panel.classList.contains('open')) {
+                overlay.classList.remove('visible');
+            } else {
+                overlay.classList.add('visible');
+            }
+        }
+
+        function toggleStreaming() {
+            useStreaming = !useStreaming;
+            document.getElementById('streamingToggle').classList.toggle('active');
+            localStorage.setItem('useStreaming', useStreaming);
+        }
+
+        function toggleMemory() {
+            useMemory = !useMemory;
+            document.getElementById('memoryToggle').classList.toggle('active');
+            localStorage.setItem('useMemory', useMemory);
+        }
+
+        function toggleResearch() {
+            useResearch = !useResearch;
+            document.getElementById('researchToggle').classList.toggle('active');
+            localStorage.setItem('useResearch', useResearch);
+        }
+
+        function loadSettings() {
+            useStreaming = localStorage.getItem('useStreaming') !== 'false';
+            useMemory = localStorage.getItem('useMemory') !== 'false';
+            useResearch = localStorage.getItem('useResearch') === 'true';
+            
+            if (!useStreaming) document.getElementById('streamingToggle').classList.remove('active');
+            if (!useMemory) document.getElementById('memoryToggle').classList.remove('active');
+            if (useResearch) document.getElementById('researchToggle').classList.add('active');
+        }
+
+        async function updateStats() {
+            try {
+                // Cache stats
+                const cacheRes = await fetch(`${API_BASE}/api/admin/cache/stats`, {
+                    headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+                });
+                if (cacheRes.ok) {
+                    const data = await cacheRes.json();
+                    const llm = data.caches.llm;
+                    document.getElementById('cacheStats').innerHTML = `
+                        Hit rate: ${llm.hit_rate}%<br>
+                        Cached: ${llm.size}/${llm.max_size}<br>
+                        Hits: ${llm.hits} | Misses: ${llm.misses}
+                    `;
+                }
+            } catch (e) {
+                console.error('Stats error:', e);
+            }
+        }
+
+        async function clearCache() {
+            if (!confirm('Wyczyścić cache?')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/cache/clear?cache_type=all`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+                });
+                if (response.ok) {
+                    alert('✅ Cache wyczyszczony!');
+                    updateStats();
+                }
+            } catch (e) {
+                alert('❌ Błąd: ' + e.message);
             }
         }
 
@@ -1056,13 +1319,6 @@
             }
         }
 
-        function showSettings() {
-            alert('Ustawienia:\n\n' +
-                '🔑 Token: ' + API_TOKEN.substring(0, 20) + '...\n' +
-                '🌐 API: ' + API_BASE + '\n' +
-                '💾 Rozmowy: ' + getConversations().length + '\n\n' +
-                'Więcej ustawień wkrótce!');
-        }
 
         // Prevent zoom on iOS
         document.addEventListener('touchstart', function(e) {
