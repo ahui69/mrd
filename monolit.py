@@ -4,6 +4,7 @@
 
 import os, re, sys, time, json, uuid, sqlite3, asyncio, contextlib
 import datetime, html, unicodedata, dataclasses
+import subprocess, math, random, hashlib, hmac, threading
 from typing import Any, Dict, List, Tuple, Optional
 from urllib.parse import parse_qs, quote_plus, urlencode, urlparse
 from urllib.request import Request as UrlRequest, urlopen
@@ -42,6 +43,13 @@ try:
 except Exception:
     print("[WARN] writer_pro not found – writer endpoints disabled")
 
+# Full API router (research, memory, system, etc.)
+try:
+    from routers_full import router as api_router
+    app.include_router(api_router)
+except Exception:
+    print("[WARN] routers_full not found – full API endpoints disabled")
+
 # Memory (opcjonalnie)
 try:
     from memory import (
@@ -77,7 +85,7 @@ WEB_USER_AGENT = os.getenv("WEB_USER_AGENT", "MonolitBot/2.3")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL    = os.getenv("LLM_MODEL", "zai-org/GLM-4.5")
 LLM_TIMEOUT  = int(os.getenv("LLM_HTTP_TIMEOUT_S", "60"))
 
@@ -1704,7 +1712,7 @@ def _cors():
 
 def http_get(url: str, headers=None, timeout=HTTP_TIMEOUT) -> str:
     h = dict(HEADERS); h.update(headers or {})
-    req = Request(url, headers=h, method="GET")
+    req = UrlRequest(url, headers=h, method="GET")
     with urlopen(req, timeout=timeout) as r:
         return r.read().decode("utf-8","replace")
 
@@ -1715,7 +1723,7 @@ def http_get_json(url: str, headers=None, timeout=HTTP_TIMEOUT) -> Any:
 
 def http_post_json(url: str, payload: dict, headers=None, timeout=HTTP_TIMEOUT) -> Any:
     h = dict(JSON_HEAD); h.update(headers or {})
-    req = Request(url, data=json.dumps(payload).encode("utf-8"), headers=h, method="POST")
+    req = UrlRequest(url, data=json.dumps(payload).encode("utf-8"), headers=h, method="POST")
     with urlopen(req, timeout=timeout) as r:
         raw = r.read().decode("utf-8","replace")
         try: return json.loads(raw)
@@ -2245,7 +2253,7 @@ _LLM_CACHE_MISSES = 0
 import httpx, os, json
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
 LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "zai-org/GLM-4.5-Air")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))
@@ -3197,7 +3205,7 @@ def db_backup()->str:
 
 # ──────────────────────────────────────────────────────────────────────────────
 # ENV dla autonauka
-SERPAPI_KEY = (os.getenv("SERPAPI_KEY") or os.getenv("FIRECRAWL_SERPAPI_KEY")))
+SERPAPI_KEY = (os.getenv("SERPAPI_KEY") or os.getenv("FIRECRAWL_SERPAPI_KEY"))
 FIRECRAWL_KEY = (os.getenv("FIRECRAWL_API_KEY") or os.getenv("FIRECRAWL_KEY") or os.getenv("FIRECRAWL"))
 
 WEB_HTTP_TIMEOUT = float(os.getenv("WEB_HTTP_TIMEOUT", "45"))
@@ -3214,7 +3222,7 @@ VOTE_MIN_SOURCES = int(os.getenv("VOTE_MIN_SOURCES", "2"))
 AUTO_TAGS = os.getenv("AUTO_TAGS", "autonauka,web,evidence")
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-4B-Instruct")
 
 CONCURRENCY = int(os.getenv("AUTON_CONCURRENCY", "8"))
@@ -5393,9 +5401,7 @@ def autonauka(query: str, topk: int = 8, deep_research: bool = False):
             saver = globals().get("ltm_add", None)
             if callable(saver):
                 ctx = res.get("context","")
-                saver(f"[autonauka] {query}
-
-{ctx[:2000]}", tags="autonauka,web,ctx", conf=0.6)
+                saver(f"[autonauka] {query}\n\n{ctx[:2000]}", tags="autonauka,web,ctx", conf=0.6)
                 for src in (res.get("sources") or [])[:max(1, int(topk or 8))]:
                     t = (src.get("title") or "").strip()
                     u = (src.get("url") or "").strip()
