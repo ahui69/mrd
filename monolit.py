@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # Monolit PRO — Writer Pro + Autonauka + STM/LTM/Semantic/Stats
 
-import os, re, sys, time, json, uuid, sqlite3, asyncio, contextlib
+import os, re, sys, time, json, uuid, sqlite3, asyncio, contextlib, subprocess, threading
 import datetime, html, unicodedata, dataclasses
 from typing import Any, Dict, List, Tuple, Optional
 from urllib.parse import parse_qs, quote_plus, urlencode, urlparse
@@ -5392,9 +5392,7 @@ def autonauka(query: str, topk: int = 8, deep_research: bool = False):
             saver = globals().get("ltm_add", None)
             if callable(saver):
                 ctx = res.get("context","")
-                saver(f"[autonauka] {query}
-
-{ctx[:2000]}", tags="autonauka,web,ctx", conf=0.6)
+                saver(f"[autonauka] {query}\n\n{ctx[:2000]}", tags="autonauka,web,ctx", conf=0.6)
                 for src in (res.get("sources") or [])[:max(1, int(topk or 8))]:
                     t = (src.get("title") or "").strip()
                     u = (src.get("url") or "").strip()
