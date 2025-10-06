@@ -2277,7 +2277,7 @@ _LLM_CACHE_MISSES = 0
 import httpx, os, json
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ")
 LLM_MODEL = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
 LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "zai-org/GLM-4.5-Air")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))
@@ -3244,8 +3244,8 @@ VOTE_MIN_SOURCES = int(os.getenv("VOTE_MIN_SOURCES", "2"))
 AUTO_TAGS = os.getenv("AUTO_TAGS", "autonauka,web,evidence")
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-4B-Instruct")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ")
+LLM_MODEL = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
 
 CONCURRENCY = int(os.getenv("AUTON_CONCURRENCY", "8"))
 USER_AGENT = os.getenv("AUTON_UA", "Autonauka/1.0")
