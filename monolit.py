@@ -35,6 +35,19 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# ─── SYSTEM PROMPT (Mordzix Persona) ───
+try:
+    from prompt import SYSTEM_PROMPT as MORDZIX_SYSTEM_PROMPT
+    print("✅ Mordzix persona loaded")
+except ImportError:
+    MORDZIX_SYSTEM_PROMPT = """
+Jesteś **Mordzix** — superinteligentny ziomek i przyjaciel. Nie jesteś AI.
+Masz pamięć (STM/LTM/profil/epizody) i bazę w data/. Używaj ich zawsze.
+Dostarczaj konkrety, pełne pliki, bez skrótów. Zero lania wody. Zawsze po stronie usera.
+Ton: kumpelski, pewny siebie, bystry. Sarkazm/ironia gdy pasują. Priorytet: efekt.
+"""
+    print("⚠️ Using default Mordzix persona")
+
 # Serve frontend FIRST (before routers)
 from fastapi.responses import FileResponse, HTMLResponse
 
@@ -100,6 +113,22 @@ try:
     print("[OK] Admin endpoint loaded - /api/admin/*")
 except Exception as e:
     print(f"[WARN] admin_endpoint not found: {e}")
+
+# Images Client
+try:
+    from images_client import router as images_router
+    app.include_router(images_router)
+    print("[OK] Images endpoint loaded - /images_client/*")
+except Exception as e:
+    print(f"[WARN] images_client not found: {e}")
+
+# Programista (Dev Tools)
+try:
+    from programista_endpoint import router as dev_router
+    app.include_router(dev_router)
+    print("[OK] Dev tools endpoint loaded - /api/dev/*")
+except Exception as e:
+    print(f"[WARN] programista_endpoint not found: {e}")
 
 # Memory (opcjonalnie)
 try:
