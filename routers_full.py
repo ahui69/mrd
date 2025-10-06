@@ -73,11 +73,33 @@ async def llm_chat(body: ChatBody, req: Request, _=Depends(_auth)):
 
 # --- RESEARCH ---
 @router.get("/research/sources")
-async def research_sources(q: str, topk: int = 8, deep: bool = False, _=Depends(_auth)):
+async def research_sources(q: str, topk: int = 8, deep: bool = False, req: Request = None, _=Depends(_auth)):
     if not hasattr(M, "autonauka"):
         raise HTTPException(500, "autonauka() not available")
+    
+    # Rate limiting
+    if MIDDLEWARE_AVAILABLE and req:
+        user_id = req.client.host
+        allowed, retry_after = rate_limiter.check_limit(user_id, "research")
+        if not allowed:
+            raise HTTPException(429, f"Rate limit exceeded. Retry after {retry_after}s")
+    
+    # Check cache
+    cache_params = {"q": q, "topk": topk, "deep": deep}
+    if MIDDLEWARE_AVAILABLE:
+        cached = search_cache.get("research", cache_params)
+        if cached:
+            cached["from_cache"] = True
+            return cached
+    
     data = await M.autonauka(q, topk=topk, deep_research=deep)
-    return {"ok": True, **(data or {})}
+    response = {"ok": True, **(data or {})}
+    
+    # Save to cache
+    if MIDDLEWARE_AVAILABLE:
+        search_cache.set("research", cache_params, response)
+    
+    return response
 
 @router.get("/search/answer")
 def search_answer(q: str, deep: bool = False, _=Depends(_auth)):
