@@ -77,17 +77,17 @@ WEB_USER_AGENT = os.getenv("WEB_USER_AGENT", "MonolitBot/2.3")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL    = os.getenv("LLM_MODEL", "zai-org/GLM-4.5")
 LLM_TIMEOUT  = int(os.getenv("LLM_HTTP_TIMEOUT_S", "60"))
 
 EMBED_URL   = os.getenv("LLM_EMBED_URL","https://api.deepinfra.com/v1/openai/embeddings")
 EMBED_MODEL = os.getenv("LLM_EMBED_MODEL","sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
 
-SERPAPI_KEY   = os.getenv("SERPAPI_KEY","a5cb3592980e0ff9042a0be2d3f7df2768bd93913252")
-FIRECRAWL_KEY = os.getenv("FIRECRAWL_KEY","fc-ec025f3a447c6878bee6926b49c17d3")
-OVERPASS_URL  = os.getenv("OVERPASS_URL","https://overpass-api.de/api/interpreter")
-OPENTRIPMAP_KEY = os.getenv("OPENTRIPMAP_KEY","AlzaSyc©bpKUI1V9GsmnUU0eRhgLDureexyWigY8")
+SERPAPI_KEY   = os.getenv("SERPAPI_KEY", "")
+FIRECRAWL_KEY = os.getenv("FIRECRAWL_KEY", "")
+OVERPASS_URL  = os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+OPENTRIPMAP_KEY = os.getenv("OPENTRIPMAP_KEY", "")
 
 SEED_CANDIDATES = [
     os.path.join(BASE_DIR, "seed_facts.jsonl"),  # Ścieżka w katalogu głównym - najważniejsza
@@ -2245,7 +2245,7 @@ _LLM_CACHE_MISSES = 0
 import httpx, os, json
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
 LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "zai-org/GLM-4.5-Air")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))
@@ -3197,8 +3197,7 @@ def db_backup()->str:
 
 # ──────────────────────────────────────────────────────────────────────────────
 # ENV dla autonauka
-SERPAPI_KEY = (os.getenv("SERPAPI_KEY") or os.getenv("FIRECRAWL_SERPAPI_KEY")))
-FIRECRAWL_KEY = (os.getenv("FIRECRAWL_API_KEY") or os.getenv("FIRECRAWL_KEY") or os.getenv("FIRECRAWL"))
+# SERPAPI_KEY and FIRECRAWL_KEY already defined above
 
 WEB_HTTP_TIMEOUT = float(os.getenv("WEB_HTTP_TIMEOUT", "45"))
 AUTO_TOPK = int(os.getenv("AUTO_TOPK", "8"))
@@ -3213,8 +3212,8 @@ VOTE_MIN_SOURCES = int(os.getenv("VOTE_MIN_SOURCES", "2"))
 
 AUTO_TAGS = os.getenv("AUTO_TAGS", "autonauka,web,evidence")
 
-LLM_BASE_URL = os.getenv("LLM_BASE_URL")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-4B-Instruct")
 
 CONCURRENCY = int(os.getenv("AUTON_CONCURRENCY", "8"))
