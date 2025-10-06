@@ -77,6 +77,14 @@ try:
 except Exception as e:
     print(f"[WARN] psyche_endpoint not found: {e}")
 
+# Files Endpoint (upload, download, analyze)
+try:
+    import files_endpoint
+    app.include_router(files_endpoint.router)
+    print("[OK] Files endpoint loaded - /api/files/*")
+except Exception as e:
+    print(f"[WARN] files_endpoint not found: {e}")
+
 # Memory (opcjonalnie)
 try:
     from memory import (
