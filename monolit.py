@@ -49,6 +49,14 @@ try:
 except Exception as e:
     print(f"[ERROR] routers_full not found: {e}")
 
+# Assistant Endpoint (all-in-one chat)
+try:
+    import assistant_endpoint
+    app.include_router(assistant_endpoint.router)
+    print("[OK] Assistant endpoint loaded - /api/chat/assistant")
+except Exception as e:
+    print(f"[WARN] assistant_endpoint not found: {e}")
+
 # Memory (opcjonalnie)
 try:
     from memory import (
@@ -2158,6 +2166,23 @@ def memory_purge(user: str)->int:
     conn=_db(); c=conn.cursor()
     c.execute("DELETE FROM memory WHERE user=?", (user,))
     conn.commit(); n=c.rowcount; conn.close(); return n
+
+# =========================
+# STM (Short-term memory) - Helper functions
+# =========================
+def stm_add(role: str, content: str, user: str = "default") -> str:
+    """Dodaj wiadomość do pamięci krótkoterminowej"""
+    return memory_add(user, role, content)
+
+def stm_get_context(user: str = "default", limit: int = 20) -> List[Dict[str,Any]]:
+    """Pobierz ostatnie wiadomości z pamięci krótkoterminowej"""
+    msgs = memory_get(user, n=limit)
+    # Odwróć kolejność żeby od najstarszych do najnowszych
+    return list(reversed(msgs))
+
+def stm_clear(user: str = "default") -> int:
+    """Wyczyść pamięć krótkoterminową dla użytkownika"""
+    return memory_purge(user)
 
 # =========================
 # Psychika
