@@ -1,21 +1,32 @@
-# Environment variables (SENSITIVE!)
+# ================================================
+# MORDZIX AI - GITIGNORE
+# ================================================
+
+# ================== Environment (SENSITIVE!) ==================
 .env
 .env.local
 .env.production
 .env.*.local
+*.env
+!.env.example
 
-# Database files
+# ================== Database files ==================
 data/
 *.db
 *.db-journal
 *.db-wal
+*.sqlite
+*.sqlite3
 
-# Python
+# ================== Python ==================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+venv/
+ENV/
+env/
 build/
 develop-eggs/
 dist/
@@ -33,31 +44,42 @@ wheels/
 *.egg
 MANIFEST
 
-# Logs
+# ================== Logs ==================
 *.log
-/tmp/
 logs/
+/tmp/
 
-# Output directories
+# ================== Output directories ==================
 out/
 queue/
 
-# OS files
+# ================== OS files ==================
 .DS_Store
 Thumbs.db
 *.swp
 *.swo
 *~
 
-# IDE
+# ================== IDE ==================
 .vscode/
 .idea/
 *.sublime-*
+.vs/
 
-# Temporary files
+# ================== Temporary files ==================
 temp/
 tmp/
 *.tmp
+*.bak
 
-# Deployment
-deployment/
+# ================== Large files (don't commit) ==================
+# Facts are tracked, but deployment copies are ignored
+deployment/.env
+deployment/.env.*
+deployment/data/
+
+# ================== Other ==================
+node_modules/
+.coverage
+htmlcov/
+.pytest_cache/

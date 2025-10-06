@@ -48,58 +48,6 @@ Ton: kumpelski, pewny siebie, bystry. Sarkazm/ironia gdy pasują. Priorytet: efe
 """
     print("⚠️ Using default Mordzix persona")
 
-# ─── LTM CACHE (fakty w RAM przy starcie) ───
-LTM_FACTS_CACHE = []
-LTM_CACHE_LOADED = False
-
-def load_ltm_to_memory():
-    """Wczytaj wszystkie fakty z SQLite do RAM przy starcie"""
-    global LTM_FACTS_CACHE, LTM_CACHE_LOADED
-    
-    if LTM_CACHE_LOADED:
-        return
-    
-    try:
-        db_path = os.getenv("DB_PATH", "data/monolit.db")
-        if not os.path.exists(db_path):
-            print(f"⚠️  Baza {db_path} nie istnieje - LTM cache pusty")
-            LTM_CACHE_LOADED = True
-            return
-        
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        
-        # Sprawdź czy tabela istnieje
-        tables = cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ltm'").fetchall()
-        if not tables:
-            print("⚠️  Tabela 'ltm' nie istnieje - LTM cache pusty")
-            conn.close()
-            LTM_CACHE_LOADED = True
-            return
-        
-        # Wczytaj WSZYSTKIE fakty
-        rows = cur.execute("SELECT id, text, tags, source, conf, created_at FROM ltm").fetchall()
-        
-        for row in rows:
-            LTM_FACTS_CACHE.append({
-                'id': row[0],
-                'text': row[1],
-                'tags': row[2] or '',
-                'source': row[3] or '',
-                'conf': row[4] or 0.7,
-                'created_at': row[5] or 0,
-                'tokens': _tok(row[1])  # Pre-tokenize dla szybkiego search
-            })
-        
-        conn.close()
-        LTM_CACHE_LOADED = True
-        
-        print(f"✅ LTM: Wczytano {len(LTM_FACTS_CACHE)} faktów do RAM")
-        
-    except Exception as e:
-        print(f"⚠️  Błąd ładowania LTM cache: {e}")
-        LTM_CACHE_LOADED = True
-
 # Serve frontend FIRST (before routers)
 from fastapi.responses import FileResponse, HTMLResponse
 
@@ -175,14 +123,6 @@ async def serve_paint_editor():
             return HTMLResponse(content=f.read())
     except FileNotFoundError:
         return HTMLResponse(content="<h1>Paint Editor not found</h1>", status_code=404)
-
-# ─── STARTUP: Wczytaj LTM do RAM ───
-@app.on_event("startup")
-async def startup_event():
-    """Wczytaj fakty do RAM przy starcie serwera"""
-    print("🚀 Starting Mordzix AI...")
-    load_ltm_to_memory()
-    print("✅ Startup complete!")
 
 # Memory (opcjonalnie)
 try:
@@ -2288,92 +2228,31 @@ def ltm_search_bm25(q:str, limit:int=50)->List[Dict[str,Any]]:
     return res
 
 def ltm_search_hybrid(q: str, limit: int = 30)->List[Dict[str,Any]]:
-    """Hybrid search - uses RAM cache if available, otherwise SQLite"""
-    # Użyj RAM cache jeśli załadowany
-    if LTM_CACHE_LOADED and LTM_FACTS_CACHE:
-        return _ltm_search_from_cache(q, limit)
-    
-    # Fallback do SQLite (używa tabeli 'ltm' nie 'facts')
-    try:
-        db_path = os.getenv("DB_PATH", "data/monolit.db")
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        
-        # Użyj tabeli 'ltm' zamiast 'facts'
-        rows = c.execute("SELECT id,text,tags,conf,created_at FROM ltm LIMIT 2000").fetchall()
-        conn.close()
-        
-        if not rows: return []
-        
-        docs=[r[1] or "" for r in rows]
-        s_tfidf=_tfidf_cos(q, docs)
-        
-        # Simple scoring bez embeddings (fallback)
-        scores = s_tfidf
-        pack=[(scores[i], rows[i]) for i in range(len(rows))]
-        pack.sort(key=lambda x:x[0], reverse=True)
-        
-        res=[]
-        for sc,r in pack[:limit]:
-            res.append({"id":r[0],"text":r[1],"tags":r[2],"conf":r[3],"created":r[4],"score":float(sc)})
-        return res
-    except Exception as e:
-        print(f"[LTM] Fallback search error: {e}")
-        return []
+    conn=_db(); c=conn.cursor()
+    rows=c.execute("SELECT id,text,tags,conf,created FROM facts WHERE deleted=0 ORDER BY created DESC LIMIT 2000").fetchall()
+    conn.close()
+    if not rows: return []
+    docs=[r["text"] or "" for r in rows]
 
-def _ltm_search_from_cache(q: str, limit: int = 30) -> List[Dict[str,Any]]:
-    """Szukaj w LTM cache (RAM) zamiast SQLite - DUŻO SZYBSZE!"""
-    if not LTM_FACTS_CACHE:
-        return []
-    
-    query_tokens = _tok(q)
-    query_lower = q.lower()
-    
-    results = []
-    
-    for fact in LTM_FACTS_CACHE:
-        score = 0.0
-        
-        # 1. Exact match w tagach (boost 3x)
-        tags_lower = fact['tags'].lower()
-        for token in query_tokens:
-            if token in tags_lower:
-                score += 3.0
-        
-        # 2. Exact match w tekście (boost 2x)
-        text_lower = fact['text'].lower()
-        if query_lower in text_lower:
-            score += 2.0
-        
-        # 3. Token overlap (TF-IDF style)
-        fact_tokens_set = set(fact['tokens'])
-        query_tokens_set = set(query_tokens)
-        overlap = fact_tokens_set & query_tokens_set
-        
-        if overlap:
-            # Więcej overlap = wyższy score
-            score += len(overlap) * 1.0
-            
-            # Bonus za długie tokeny (bardziej specyficzne)
-            for token in overlap:
-                if len(token) > 5:
-                    score += 0.5
-        
-        # 4. Confidence boost
-        score *= fact['conf']
-        
-        if score > 0:
-            results.append({
-                'text': fact['text'],
-                'tags': fact['tags'],
-                'source': fact['source'],
-                'conf': fact['conf'],
-                'score': score
-            })
-    
-    # Sortuj i zwróć top N
-    results.sort(key=lambda x: x['score'], reverse=True)
-    return results[:limit]
+    s_tfidf=_tfidf_cos(q, docs)
+    bm25_pairs=_fts_bm25(q, limit=min(len(docs), 300))
+    bm25_map={t: s for t,s in bm25_pairs}
+    s_bm25=[bm25_map.get(d, 0.0) for d in docs]
+
+    try:
+        qv=embed_many([q]); dvs=embed_many(docs)
+        s_emb=[_vec_cos(qv[0],d) for d in dvs] if (qv and dvs) else [0.0]*len(docs)
+    except Exception:
+        s_emb=[0.0]*len(docs)
+
+    scores=_blend_scores(s_tfidf, s_bm25, s_emb, wt=(0.44,0.32,0.24))
+    pack=[(scores[i], rows[i]) for i in range(len(rows))]
+    pack.sort(key=lambda x:x[0], reverse=True)
+
+    res=[]
+    for sc,r in pack[:limit]:
+        res.append({"id":r["id"],"text":r["text"],"tags":r["tags"],"conf":r["conf"],"created":r["created"],"score":float(sc)})
+    return res
 
 # =========================
 # STM ROTACJA 160→(100→LTM)+(60 w STM)

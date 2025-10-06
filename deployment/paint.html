@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🎨 Paint Pro - Mordzix</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1e1e1e;
+            color: #fff;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: #2d2d2d;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #007AFF;
+        }
+
+        .title {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #007AFF;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+
+        .btn-secondary {
+            background: #3a3a3a;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4a4a4a;
+        }
+
+        /* Toolbar */
+        .toolbar {
+            background: #2d2d2d;
+            padding: 15px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+            border-bottom: 1px solid #3a3a3a;
+        }
+
+        .tool-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .tool-btn {
+            width: 44px;
+            height: 44px;
+            border: 2px solid #3a3a3a;
+            background: #2d2d2d;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            transition: all 0.2s;
+        }
+
+        .tool-btn:hover {
+            border-color: #007AFF;
+            background: #3a3a3a;
+        }
+
+        .tool-btn.active {
+            border-color: #007AFF;
+            background: #007AFF;
+        }
+
+        .color-picker {
+            width: 50px;
+            height: 44px;
+            border: 2px solid #3a3a3a;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .slider-group label {
+            font-size: 12px;
+            color: #999;
+        }
+
+        input[type="range"] {
+            width: 120px;
+        }
+
+        /* Canvas Area */
+        .canvas-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #1e1e1e;
+            overflow: auto;
+            position: relative;
+        }
+
+        #canvas {
+            background: white;
+            cursor: crosshair;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+
+        /* Templates Panel */
+        .templates {
+            position: fixed;
+            right: -300px;
+            top: 0;
+            width: 300px;
+            height: 100vh;
+            background: #2d2d2d;
+            border-left: 2px solid #3a3a3a;
+            transition: right 0.3s ease;
+            z-index: 1000;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .templates.open {
+            right: 0;
+        }
+
+        .template-item {
+            padding: 15px;
+            background: #3a3a3a;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .template-item:hover {
+            background: #4a4a4a;
+            transform: translateX(-5px);
+        }
+
+        .template-item h3 {
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .template-item p {
+            font-size: 12px;
+            color: #999;
+        }
+
+        /* Status Bar */
+        .status-bar {
+            background: #2d2d2d;
+            padding: 8px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #3a3a3a;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .divider {
+            width: 1px;
+            height: 30px;
+            background: #3a3a3a;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="title">🎨 Paint Pro - Mordzix Edition</div>
+            <div class="header-actions">
+                <button class="btn btn-secondary" onclick="clearCanvas()">🗑️ Wyczyść</button>
+                <button class="btn btn-primary" onclick="downloadImage()">💾 Zapisz PNG</button>
+                <button class="btn btn-secondary" onclick="toggleTemplates()">📋 Szablony</button>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <div class="tool-group">
+                <div class="tool-btn active" onclick="setTool('brush')" id="tool-brush">🖌️</div>
+                <div class="tool-btn" onclick="setTool('line')" id="tool-line">📏</div>
+                <div class="tool-btn" onclick="setTool('rect')" id="tool-rect">▭</div>
+                <div class="tool-btn" onclick="setTool('circle')" id="tool-circle">⭕</div>
+                <div class="tool-btn" onclick="setTool('fill')" id="tool-fill">🪣</div>
+                <div class="tool-btn" onclick="setTool('eraser')" id="tool-eraser">🧹</div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="tool-group">
+                <input type="color" class="color-picker" id="colorPicker" value="#000000" onchange="setColor(this.value)">
+                <span id="colorLabel" style="font-size: 12px;">#000000</span>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="slider-group">
+                <label for="brushSize">Grubość: <span id="sizeValue">5</span>px</label>
+                <input type="range" id="brushSize" min="1" max="50" value="5" oninput="setBrushSize(this.value)">
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="tool-group">
+                <div class="tool-btn" onclick="undo()">↶</div>
+                <div class="tool-btn" onclick="redo()">↷</div>
+            </div>
+        </div>
+
+        <!-- Canvas -->
+        <div class="canvas-container">
+            <canvas id="canvas" width="1200" height="800"></canvas>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div>
+                <span id="mousePos">X: 0, Y: 0</span>
+            </div>
+            <div>
+                <span id="canvasSize">1200 x 800</span>
+            </div>
+        </div>
+
+        <!-- Templates Panel -->
+        <div class="templates" id="templatesPanel">
+            <h2 style="margin-bottom: 20px;">📋 Szablony</h2>
+            
+            <div class="template-item" onclick="loadCarTemplate()">
+                <h3>🚗 Samochodzik</h3>
+                <p>Prosty szablon auta do edycji</p>
+            </div>
+
+            <div class="template-item" onclick="loadHouseTemplate()">
+                <h3>🏠 Domek</h3>
+                <p>Szablon domu z dachem</p>
+            </div>
+
+            <div class="template-item" onclick="loadSunTemplate()">
+                <h3>☀️ Słońce</h3>
+                <p>Słoneczko z promieniami</p>
+            </div>
+
+            <div class="template-item" onclick="loadTreeTemplate()">
+                <h3>🌲 Drzewko</h3>
+                <p>Proste drzewko iglaste</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // State
+        let currentTool = 'brush';
+        let currentColor = '#000000';
+        let brushSize = 5;
+        let isDrawing = false;
+        let startX, startY;
+        let history = [];
+        let historyStep = -1;
+
+        // Initialize
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        saveState();
+
+        // Tool selection
+        function setTool(tool) {
+            currentTool = tool;
+            document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('tool-' + tool).classList.add('active');
+            
+            if (tool === 'eraser') {
+                canvas.style.cursor = 'grab';
+            } else {
+                canvas.style.cursor = 'crosshair';
+            }
+        }
+
+        function setColor(color) {
+            currentColor = color;
+            document.getElementById('colorLabel').textContent = color;
+        }
+
+        function setBrushSize(size) {
+            brushSize = size;
+            document.getElementById('sizeValue').textContent = size;
+        }
+
+        // Drawing functions
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+        canvas.addEventListener('mousemove', updateMousePos);
+
+        // Touch support
+        canvas.addEventListener('touchstart', handleTouch);
+        canvas.addEventListener('touchmove', handleTouch);
+        canvas.addEventListener('touchend', stopDrawing);
+
+        function handleTouch(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            
+            const mouseEvent = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : 'mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            canvas.dispatchEvent(mouseEvent);
+        }
+
+        function startDrawing(e) {
+            isDrawing = true;
+            const rect = canvas.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+
+            if (currentTool === 'brush' || currentTool === 'eraser') {
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+            }
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            if (currentTool === 'brush') {
+                ctx.strokeStyle = currentColor;
+                ctx.lineWidth = brushSize;
+                ctx.lineCap = 'round';
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            } else if (currentTool === 'eraser') {
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = brushSize;
+                ctx.lineCap = 'round';
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            }
+        }
+
+        function stopDrawing(e) {
+            if (!isDrawing) return;
+            isDrawing = false;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            if (currentTool === 'line') {
+                ctx.strokeStyle = currentColor;
+                ctx.lineWidth = brushSize;
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            } else if (currentTool === 'rect') {
+                ctx.strokeStyle = currentColor;
+                ctx.lineWidth = brushSize;
+                ctx.strokeRect(startX, startY, x - startX, y - startY);
+            } else if (currentTool === 'circle') {
+                ctx.strokeStyle = currentColor;
+                ctx.lineWidth = brushSize;
+                const radius = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
+                ctx.beginPath();
+                ctx.arc(startX, startY, radius, 0, 2 * Math.PI);
+                ctx.stroke();
+            } else if (currentTool === 'fill') {
+                floodFill(Math.floor(startX), Math.floor(startY), currentColor);
+            }
+
+            saveState();
+        }
+
+        function updateMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor(e.clientX - rect.left);
+            const y = Math.floor(e.clientY - rect.top);
+            document.getElementById('mousePos').textContent = `X: ${x}, Y: ${y}`;
+        }
+
+        // History
+        function saveState() {
+            historyStep++;
+            if (historyStep < history.length) {
+                history.length = historyStep;
+            }
+            history.push(canvas.toDataURL());
+        }
+
+        function undo() {
+            if (historyStep > 0) {
+                historyStep--;
+                const img = new Image();
+                img.src = history[historyStep];
+                img.onload = () => ctx.drawImage(img, 0, 0);
+            }
+        }
+
+        function redo() {
+            if (historyStep < history.length - 1) {
+                historyStep++;
+                const img = new Image();
+                img.src = history[historyStep];
+                img.onload = () => ctx.drawImage(img, 0, 0);
+            }
+        }
+
+        // Utilities
+        function clearCanvas() {
+            if (confirm('Wyczyścić canvas?')) {
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                saveState();
+            }
+        }
+
+        function downloadImage() {
+            const link = document.createElement('a');
+            link.download = `mordzix-paint-${Date.now()}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+
+        function toggleTemplates() {
+            document.getElementById('templatesPanel').classList.toggle('open');
+        }
+
+        // Flood fill algorithm (simplified)
+        function floodFill(x, y, fillColor) {
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const targetColor = getPixelColor(imageData, x, y);
+            const fillColorRGB = hexToRgb(fillColor);
+            
+            if (colorsMatch(targetColor, fillColorRGB)) return;
+
+            const stack = [[x, y]];
+            const visited = new Set();
+
+            while (stack.length > 0) {
+                const [px, py] = stack.pop();
+                const key = `${px},${py}`;
+                
+                if (visited.has(key)) continue;
+                if (px < 0 || px >= canvas.width || py < 0 || py >= canvas.height) continue;
+                
+                const currentColor = getPixelColor(imageData, px, py);
+                if (!colorsMatch(currentColor, targetColor)) continue;
+
+                setPixelColor(imageData, px, py, fillColorRGB);
+                visited.add(key);
+
+                stack.push([px + 1, py], [px - 1, py], [px, py + 1], [px, py - 1]);
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function getPixelColor(imageData, x, y) {
+            const index = (y * imageData.width + x) * 4;
+            return [
+                imageData.data[index],
+                imageData.data[index + 1],
+                imageData.data[index + 2],
+                imageData.data[index + 3]
+            ];
+        }
+
+        function setPixelColor(imageData, x, y, color) {
+            const index = (y * imageData.width + x) * 4;
+            imageData.data[index] = color[0];
+            imageData.data[index + 1] = color[1];
+            imageData.data[index + 2] = color[2];
+            imageData.data[index + 3] = 255;
+        }
+
+        function colorsMatch(a, b) {
+            return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+        }
+
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? [
+                parseInt(result[1], 16),
+                parseInt(result[2], 16),
+                parseInt(result[3], 16)
+            ] : [0, 0, 0];
+        }
+
+        // Templates
+        function loadCarTemplate() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Samochodzik 8/10
+            ctx.fillStyle = '#FF0000';
+            ctx.fillRect(400, 350, 400, 150); // Nadwozie
+            
+            ctx.fillStyle = '#8B0000';
+            ctx.fillRect(450, 280, 300, 120); // Kabina
+            
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(470, 300, 120, 70); // Przednia szyba
+            ctx.fillRect(630, 300, 100, 70); // Tylna szyba
+            
+            ctx.fillStyle = '#FFD700';
+            ctx.fillRect(380, 370, 30, 20); // Przedni reflektor
+            
+            ctx.fillStyle = '#222';
+            ctx.beginPath();
+            ctx.arc(500, 500, 50, 0, 2 * Math.PI); // Przednie koło
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(700, 500, 50, 0, 2 * Math.PI); // Tylne koło
+            ctx.fill();
+            
+            ctx.fillStyle = '#AAA';
+            ctx.beginPath();
+            ctx.arc(500, 500, 25, 0, 2 * Math.PI); // Felga przednia
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(700, 500, 25, 0, 2 * Math.PI); // Felga tylna
+            ctx.fill();
+            
+            saveState();
+            toggleTemplates();
+        }
+
+        function loadHouseTemplate() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(400, 300, 400, 300); // Ściany
+            
+            ctx.fillStyle = '#A0522D';
+            ctx.beginPath();
+            ctx.moveTo(350, 300);
+            ctx.lineTo(600, 150);
+            ctx.lineTo(850, 300);
+            ctx.closePath();
+            ctx.fill(); // Dach
+            
+            ctx.fillStyle = '#654321';
+            ctx.fillRect(550, 450, 100, 150); // Drzwi
+            
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(450, 380, 80, 80); // Okno lewe
+            ctx.fillRect(670, 380, 80, 80); // Okno prawe
+            
+            saveState();
+            toggleTemplates();
+        }
+
+        function loadSunTemplate() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.arc(600, 200, 80, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 8;
+            for (let i = 0; i < 12; i++) {
+                const angle = (i * 30) * Math.PI / 180;
+                const x1 = 600 + Math.cos(angle) * 100;
+                const y1 = 200 + Math.sin(angle) * 100;
+                const x2 = 600 + Math.cos(angle) * 150;
+                const y2 = 200 + Math.sin(angle) * 150;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            }
+            
+            saveState();
+            toggleTemplates();
+        }
+
+        function loadTreeTemplate() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(570, 400, 60, 200); // Pień
+            
+            ctx.fillStyle = '#228B22';
+            ctx.beginPath();
+            ctx.moveTo(600, 200);
+            ctx.lineTo(700, 400);
+            ctx.lineTo(500, 400);
+            ctx.closePath();
+            ctx.fill(); // Korona 1
+            
+            ctx.beginPath();
+            ctx.moveTo(600, 280);
+            ctx.lineTo(680, 450);
+            ctx.lineTo(520, 450);
+            ctx.closePath();
+            ctx.fill(); // Korona 2
+            
+            saveState();
+            toggleTemplates();
+        }
+    </script>
+</body>
+</html>
