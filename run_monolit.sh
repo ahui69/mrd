@@ -11,5 +11,5 @@ export SERPAPI_KEY="${SERPAPI_KEY:-}"
 export LLM_API_KEY="${LLM_API_KEY:-}"
 
 cd /workspace
-nohup gunicorn -w 4 -b 0.0.0.0:8000 monolit:app --timeout 120 --reload > monolit.log 2>&1 &
+nohup python3 -m uvicorn monolit:app --host 0.0.0.0 --port 8000 --reload > monolit.log 2>&1 &
 echo "monolit up. tail -n 50 /workspace/monolit.log"

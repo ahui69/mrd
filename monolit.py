@@ -38,7 +38,7 @@ app.add_middleware(
 
 # Writer Pro (opcjonalnie)
 try:
-    from writer_pro import router as writer_router
+    from writer_pro import writer_router
     app.include_router(writer_router)
 except Exception:
     print("[WARN] writer_pro not found – writer endpoints disabled")
@@ -77,7 +77,7 @@ SEMANTIC_MODULE_AVAILABLE = True
 # =========================
 # KONFIG
 # =========================
-BASE_DIR = os.getenv("WORKSPACE", "/workspace/mrd69")
+BASE_DIR = os.getenv("WORKSPACE", "/workspace")
 DB_PATH  = os.getenv("MEM_DB", os.path.join(BASE_DIR, "mem.db"))
 AUTH_TOKEN = os.getenv("AUTH_TOKEN", "ssjjMijaja6969")
 HTTP_TIMEOUT = int(os.getenv("TIMEOUT_HTTP", "60"))
@@ -92,10 +92,10 @@ LLM_TIMEOUT  = int(os.getenv("LLM_HTTP_TIMEOUT_S", "60"))
 EMBED_URL   = os.getenv("LLM_EMBED_URL","https://api.deepinfra.com/v1/openai/embeddings")
 EMBED_MODEL = os.getenv("LLM_EMBED_MODEL","sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
 
-SERPAPI_KEY   = os.getenv("SERPAPI_KEY","a5cb3592980e0ff9042a0be2d3f7df2768bd93913252")
-FIRECRAWL_KEY = os.getenv("FIRECRAWL_KEY","fc-ec025f3a447c6878bee6926b49c17d3")
+SERPAPI_KEY   = os.getenv("SERPAPI_KEY", "")
+FIRECRAWL_KEY = os.getenv("FIRECRAWL_KEY", "")
 OVERPASS_URL  = os.getenv("OVERPASS_URL","https://overpass-api.de/api/interpreter")
-OPENTRIPMAP_KEY = os.getenv("OPENTRIPMAP_KEY","AlzaSyc©bpKUI1V9GsmnUU0eRhgLDureexyWigY8")
+OPENTRIPMAP_KEY = os.getenv("OPENTRIPMAP_KEY", "")
 
 SEED_CANDIDATES = [
     os.path.join(BASE_DIR, "seed_facts.jsonl"),  # Ścieżka w katalogu głównym - najważniejsza
@@ -2252,11 +2252,9 @@ _LLM_CACHE_MISSES = 0
 
 import httpx, os, json
 
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
+# Użyj globalnych ustawień LLM z sekcji KONFIG
 LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "zai-org/GLM-4.5-Air")
-LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))
+LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", str(LLM_TIMEOUT)))
 
 def _llm_request(messages: list[dict], model: str) -> str:
     """Wysyła żądanie do DeepInfra dla danego modelu."""
@@ -2550,7 +2548,7 @@ def suggest_tags_for_auction(title:str, desc:str) -> List[str]:
 # =========================
 import httpx
 import autonauka_pro as AUTOPRO
-from writer_pro import writer_router
+# from writer_pro import writer_router  # usunięto zbędny duplikat importu
 
 def extract_text(html: str) -> Tuple[str,str]:
     try:
@@ -3221,9 +3219,7 @@ VOTE_MIN_SOURCES = int(os.getenv("VOTE_MIN_SOURCES", "2"))
 
 AUTO_TAGS = os.getenv("AUTO_TAGS", "autonauka,web,evidence")
 
-LLM_BASE_URL = os.getenv("LLM_BASE_URL")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-4B-Instruct")
+# Korzystamy z globalnych LLM_* z sekcji KONFIG (bez redefinicji)
 
 CONCURRENCY = int(os.getenv("AUTON_CONCURRENCY", "8"))
 USER_AGENT = os.getenv("AUTON_UA", "Autonauka/1.0")
