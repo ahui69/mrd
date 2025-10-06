@@ -1320,6 +1320,160 @@
         }
 
 
+        // ============================================================================
+        // AUTO-SAVE CO 30s
+        // ============================================================================
+        setInterval(() => {
+            if (currentConversationId) {
+                const conversations = getConversations();
+                const conv = conversations.find(c => c.id === currentConversationId);
+                if (conv) {
+                    conv.updated = Date.now();
+                    saveConversation(conv);
+                    console.log('[AUTO-SAVE] Conversation saved at', new Date().toLocaleTimeString());
+                }
+            }
+        }, 30000); // 30 seconds
+
+        // ============================================================================
+        // TIMER BEZCZYNNOŚCI - 1h → nowy chat
+        // ============================================================================
+        let inactivityTimer = null;
+        let lastActivity = Date.now();
+
+        function resetInactivityTimer() {
+            lastActivity = Date.now();
+            
+            if (inactivityTimer) {
+                clearTimeout(inactivityTimer);
+            }
+            
+            // 1 hour = 3600000ms
+            inactivityTimer = setTimeout(() => {
+                console.log('[INACTIVITY] 1 hour passed - starting new chat');
+                alert('🕐 Przez 1 godzinę nie było aktywności. Rozpoczynam nową rozmowę!');
+                newChat();
+            }, 3600000);
+        }
+
+        // Track user activity
+        ['mousedown', 'keypress', 'scroll', 'touchstart', 'input'].forEach(event => {
+            document.addEventListener(event, resetInactivityTimer, true);
+        });
+
+        // Initialize
+        resetInactivityTimer();
+
+        // ============================================================================
+        // AUTO-UCZENIE - hasło → research → save to LTM
+        // ============================================================================
+        async function autoLearn(topic) {
+            if (!topic || topic.length < 3) {
+                alert('❌ Podaj hasło (min 3 znaki)');
+                return;
+            }
+
+            console.log('[AUTO-LEARN] Starting research for:', topic);
+            
+            const resultDiv = document.getElementById('autoLearnResult');
+            if (resultDiv) {
+                resultDiv.innerHTML = `
+                    <div style="padding: 15px; background: #FFF3CD; border-radius: 8px; margin: 10px 0;">
+                        🔍 Szukam informacji o: <strong>${topic}</strong>...
+                    </div>
+                `;
+            }
+
+            try {
+                // 1. Research
+                const researchResp = await fetch(`${API_BASE}/api/research/sources?q=${encodeURIComponent(topic)}&topk=5`, {
+                    headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+                });
+                
+                if (!researchResp.ok) {
+                    throw new Error('Research failed');
+                }
+                
+                const researchData = await researchResp.json();
+                console.log('[AUTO-LEARN] Research results:', researchData);
+                
+                // 2. Extract facts and save to LTM
+                let savedCount = 0;
+                
+                if (researchData.sources && researchData.sources.length > 0) {
+                    for (const source of researchData.sources.slice(0, 3)) {
+                        const fact = {
+                            text: source.snippet || source.title,
+                            tags: ["auto_learn", topic.toLowerCase().replace(/\s+/g, '_'), "research"],
+                            source: source.link || "auto-research",
+                            conf: 0.75
+                        };
+                        
+                        try {
+                            const saveResp = await fetch(`${API_BASE}/api/ltm/add`, {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `Bearer ${API_TOKEN}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify(fact)
+                            });
+                            
+                            if (saveResp.ok) {
+                                savedCount++;
+                            }
+                        } catch (err) {
+                            console.error('[AUTO-LEARN] Failed to save fact:', err);
+                        }
+                    }
+                }
+                
+                // 3. Show results
+                if (resultDiv) {
+                    resultDiv.innerHTML = `
+                        <div style="padding: 15px; background: #D4EDDA; border-radius: 8px; margin: 10px 0;">
+                            ✅ Auto-uczenie zakończone!<br>
+                            📚 Znaleziono: ${researchData.sources?.length || 0} źródeł<br>
+                            💾 Zapisano do LTM: ${savedCount} faktów o <strong>${topic}</strong>
+                        </div>
+                    `;
+                }
+                
+                console.log(`[AUTO-LEARN] Saved ${savedCount} facts to LTM`);
+                
+            } catch (error) {
+                console.error('[AUTO-LEARN] Error:', error);
+                if (resultDiv) {
+                    resultDiv.innerHTML = `
+                        <div style="padding: 15px; background: #F8D7DA; border-radius: 8px; margin: 10px 0;">
+                            ❌ Błąd podczas auto-uczenia: ${error.message}
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        // Add auto-learn UI to sidebar (if not exists)
+        window.addEventListener('load', () => {
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar && !document.getElementById('autoLearnSection')) {
+                const autoLearnHTML = `
+                    <div id="autoLearnSection" style="padding: 15px; border-top: 1px solid var(--border);">
+                        <h3 style="font-size: 16px; margin-bottom: 10px;">🎓 Auto-uczenie</h3>
+                        <input type="text" id="autoLearnInput" placeholder="Wpisz hasło..." 
+                               style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px;">
+                        <button onclick="autoLearn(document.getElementById('autoLearnInput').value)" 
+                                style="width: 100%; padding: 10px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            🔍 Naucz się
+                        </button>
+                        <div id="autoLearnResult"></div>
+                    </div>
+                `;
+                
+                sidebar.innerHTML += autoLearnHTML;
+            }
+        });
+
         // Prevent zoom on iOS
         document.addEventListener('touchstart', function(e) {
             if (e.touches.length > 1) {

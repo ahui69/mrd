@@ -1,0 +1,51 @@
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║        📦 PLIKI DO ŚCIĄGNIĘCIA - DEPLOYMENT CHECKLIST         ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+✅ NIEZBĘDNE (MUST HAVE):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📁 CORE BACKEND:
+   ├── monolit.py                    (backend główny - 5600 linii)
+   ├── requirements.txt              (dependencies)
+   ├── .env                          (157 zmiennych API)
+   └── start.sh                      (uruchomienie)
+
+📁 ROUTERS:
+   ├── routers_full.py               (główne endpointy)
+   ├── assistant_endpoint.py         (chat all-in-one)
+   ├── psyche_endpoint.py            (AI psyche)
+   ├── files_endpoint.py             (upload/download)
+   ├── travel_endpoint.py            (geocoding/trips)
+   └── admin_endpoint.py             (cache/stats)
+
+📁 MODULES:
+   ├── middleware.py                 (cache + rate limiting)
+   ├── prompt.py                     (Mordzix persona)
+   ├── autonauka_pro.py              (research/learning)
+   └── writer_pro.py                 (content generation)
+
+📁 FRONTEND:
+   ├── frontend.html                 (UI główny + auto-uczenie)
+   └── paint.html                    (paint editor)
+
+📁 DATA (opcjonalnie ale polecam):
+   └── facts_complete.json           (5200 faktów backup)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔸 POMOCNICZE (nice to have):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   ├── README.md                     (dokumentacja)
+   ├── FINAL_COMPLETE.md             (pełny opis)
+   └── CO_TERAZ_DZIALA.md            (status)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 TOTAL:
+   Niezbędne:  15 plików (~50MB z fakty)
+   Pomocnicze: 3 pliki
+
