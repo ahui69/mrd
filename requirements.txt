@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic
+httpx
+bs4
+readability-lxml
+gunicorn
+aiohttp
+matplotlib
+numpy
+psutil
