@@ -57,6 +57,14 @@ try:
 except Exception as e:
     print(f"[WARN] assistant_endpoint not found: {e}")
 
+# Psyche Endpoint (stan psychiczny AI)
+try:
+    import psyche_endpoint
+    app.include_router(psyche_endpoint.router)
+    print("[OK] Psyche endpoint loaded - /api/psyche/*")
+except Exception as e:
+    print(f"[WARN] psyche_endpoint not found: {e}")
+
 # Memory (opcjonalnie)
 try:
     from memory import (
