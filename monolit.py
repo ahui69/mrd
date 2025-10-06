@@ -37,10 +37,17 @@ app.add_middleware(
 
 # Writer Pro (opcjonalnie)
 try:
-    from writer_pro import router as writer_router
+    from writer_pro import writer_router
     app.include_router(writer_router)
 except Exception:
     print("[WARN] writer_pro not found – writer endpoints disabled")
+
+# Routers Full (główne endpointy API)
+try:
+    import routers_full
+    app.include_router(routers_full.router)
+except Exception as e:
+    print(f"[ERROR] routers_full not found: {e}")
 
 # Memory (opcjonalnie)
 try:
@@ -2542,7 +2549,6 @@ def suggest_tags_for_auction(title:str, desc:str) -> List[str]:
 # =========================
 import httpx
 import autonauka_pro as AUTOPRO
-from writer_pro import writer_router
 
 def extract_text(html: str) -> Tuple[str,str]:
     try:
@@ -5335,7 +5341,7 @@ def print_stats():
 
 def start_server(host="0.0.0.0", port=8080, stats_interval=300):
     """Uruchamia serwer z okresowym wyświetlaniem statystyk"""
-    from wsgiref.simple_server import make_server
+    import uvicorn
     import threading
     import time
     
@@ -5352,16 +5358,13 @@ def start_server(host="0.0.0.0", port=8080, stats_interval=300):
     print_stats()
     
     try:
-        make_server(host, port, app).serve_forever()
+        uvicorn.run(app, host=host, port=port, log_level="info")
     except KeyboardInterrupt:
         print("\nZatrzymywanie serwera...")
         print_stats()
         print("Serwer zatrzymany.")
 
 if __name__ == "__main__":
-    # Sprawdź i zainstaluj zależności
-    check_and_install_dependencies()
-    
     # Przetwórz argumenty linii poleceń
     import argparse
     parser = argparse.ArgumentParser(description='MRD69 Monolit TURBO')
