@@ -73,13 +73,13 @@ async def llm_chat(body: ChatBody, req: Request, _=Depends(_auth)):
 
 # --- RESEARCH ---
 @router.get("/research/sources")
-async def research_sources(q: str, topk: int = 8, deep: bool = False, req: Request = None, _=Depends(_auth)):
+async def research_sources(q: str, topk: int = 8, deep: bool = False, _=Depends(_auth)):
     if not hasattr(M, "autonauka"):
         raise HTTPException(500, "autonauka() not available")
     
-    # Rate limiting
-    if MIDDLEWARE_AVAILABLE and req:
-        user_id = req.client.host
+    # Rate limiting  
+    if MIDDLEWARE_AVAILABLE:
+        user_id = "api-user"
         allowed, retry_after = rate_limiter.check_limit(user_id, "research")
         if not allowed:
             raise HTTPException(429, f"Rate limit exceeded. Retry after {retry_after}s")
