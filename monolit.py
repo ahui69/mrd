@@ -2125,6 +2125,16 @@ def system_stats()->Dict[str,Any]:
     
     return stats
 
+def sports_scores(league: str = "nba")->Dict[str,Any]:
+    """Get sports scores (mock implementation - extend with real API)"""
+    # Simple mock for now - real implementation would call external sports API
+    return {
+        "ok": True,
+        "league": league,
+        "message": "Sports scores feature - integrate with ESPN/TheScore API",
+        "games": []
+    }
+
 def _blend_scores(tfidf: List[float], bm25: List[float], emb: List[float],
                   wt=(0.45, 0.30, 0.25), recency: List[float] = None) -> List[float]:
     """
