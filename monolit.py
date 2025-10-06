@@ -1727,6 +1727,28 @@ semantic_analyzer = SemanticAnalyzer()
 semantic_integration = SemanticIntegration(DB_PATH)
 print("Moduł analizy semantycznej uruchomiony")
 
+# ===== PUBLIC API FOR SEMANTIC ANALYSIS =====
+def semantic_analyze(text: str)->Dict[str,Any]:
+    """Analyze text semantically - sentiment, intent, entities, keywords"""
+    return semantic_analyzer.analyze_text(text)
+
+def semantic_analyze_conversation(messages: List[Dict[str,str]])->Dict[str,Any]:
+    """Analyze entire conversation for patterns and trends"""
+    return semantic_analyzer.analyze_conversation(messages)
+
+def semantic_enhance_response(answer: str, context: str="")->Dict[str,Any]:
+    """Enhance response based on semantic analysis"""
+    analysis = semantic_analyzer.analyze_text(answer)
+    enhanced = answer
+    sentiment = analysis.get("sentyment", {})
+    
+    # Add empathy if needed
+    if sentiment.get("dominujący") == "negatywny":
+        if not any(word in answer.lower() for word in ["przepraszam", "rozumiem", "przykro"]):
+            enhanced = "Rozumiem, " + answer[0].lower() + answer[1:]
+    
+    return {"ok": True, "original": answer, "enhanced": enhanced, "analysis": analysis}
+
 # =========================
 # HTTP util
 # =========================
@@ -2038,6 +2060,70 @@ def facts_reindex()->Dict[str,Any]:
             pass
     conn.commit(); conn.close()
     return {"ok":True,"indexed":n}
+
+# Public API wrappers
+def ltm_delete(id_or_text: str)->Dict[str,Any]:
+    """Delete fact from LTM (soft delete)"""
+    n = ltm_soft_delete(id_or_text)
+    return {"ok": True, "deleted": n}
+
+def ltm_reindex()->Dict[str,Any]:
+    """Rebuild LTM search indexes"""
+    return facts_reindex()
+
+def system_stats()->Dict[str,Any]:
+    """Get comprehensive system statistics"""
+    import psutil, os
+    
+    stats = {
+        "uptime_s": int(time.time()),
+        "process": {
+            "pid": os.getpid(),
+            "cpu_percent": psutil.Process().cpu_percent(interval=0.1),
+            "memory_mb": round(psutil.Process().memory_info().rss / 1024 / 1024, 2),
+        },
+        "system": {
+            "cpu_count": psutil.cpu_count(),
+            "cpu_percent": psutil.cpu_percent(interval=0.1),
+            "memory_total_gb": round(psutil.virtual_memory().total / 1024 / 1024 / 1024, 2),
+            "memory_available_gb": round(psutil.virtual_memory().available / 1024 / 1024 / 1024, 2),
+            "memory_percent": psutil.virtual_memory().percent,
+        }
+    }
+    
+    # Database stats
+    try:
+        conn = _db()
+        c = conn.cursor()
+        
+        # Count records in tables
+        stats["database"] = {
+            "path": DB_PATH,
+            "size_mb": round(os.path.getsize(DB_PATH) / 1024 / 1024, 2) if os.path.exists(DB_PATH) else 0,
+            "facts_total": c.execute("SELECT COUNT(*) FROM facts").fetchone()[0],
+            "facts_active": c.execute("SELECT COUNT(*) FROM facts WHERE deleted=0").fetchone()[0],
+            "memory_messages": c.execute("SELECT COUNT(*) FROM memory").fetchone()[0],
+            "memory_summaries": c.execute("SELECT COUNT(*) FROM memory_long").fetchone()[0],
+            "psyche_episodes": c.execute("SELECT COUNT(*) FROM psy_episode").fetchone()[0],
+        }
+        
+        conn.close()
+    except Exception as e:
+        stats["database"] = {"error": str(e)}
+    
+    # Psyche state
+    try:
+        psyche = psy_get()
+        stats["psyche"] = {
+            "mood": round(psyche["mood"], 2),
+            "energy": round(psyche["energy"], 2),
+            "focus": round(psyche["focus"], 2),
+            "style": psyche["style"]
+        }
+    except:
+        pass
+    
+    return stats
 
 def _blend_scores(tfidf: List[float], bm25: List[float], emb: List[float],
                   wt=(0.45, 0.30, 0.25), recency: List[float] = None) -> List[float]:
