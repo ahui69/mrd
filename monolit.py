@@ -35,6 +35,18 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# Serve frontend FIRST (before routers)
+from fastapi.responses import FileResponse, HTMLResponse
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    """Serve the main frontend HTML"""
+    try:
+        with open("/workspace/frontend.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Frontend not found. Please ensure frontend.html exists.</h1>", status_code=404)
+
 # Writer Pro (opcjonalnie)
 try:
     from writer_pro import writer_router
@@ -64,18 +76,6 @@ try:
     print("[OK] Psyche endpoint loaded - /api/psyche/*")
 except Exception as e:
     print(f"[WARN] psyche_endpoint not found: {e}")
-
-# Serve frontend
-from fastapi.responses import FileResponse, HTMLResponse
-
-@app.get("/", response_class=HTMLResponse)
-async def serve_frontend():
-    """Serve the main frontend HTML"""
-    try:
-        with open("/workspace/frontend.html", "r", encoding="utf-8") as f:
-            return HTMLResponse(content=f.read())
-    except FileNotFoundError:
-        return HTMLResponse(content="<h1>Frontend not found. Please ensure frontend.html exists.</h1>", status_code=404)
 
 # Memory (opcjonalnie)
 try:
@@ -5410,6 +5410,17 @@ def start_server(host="0.0.0.0", port=8080, stats_interval=300):
         print("Serwer zatrzymany.")
 
 if __name__ == "__main__":
+    # Frontend route - add at the end to avoid conflicts
+    from fastapi.responses import HTMLResponse as _HTMLResponse
+    @app.get("/app", response_class=_HTMLResponse)
+    @app.get("/chat", response_class=_HTMLResponse)
+    async def _serve_frontend_alt():
+        try:
+            with open("/workspace/frontend.html", "r", encoding="utf-8") as f:
+                return _HTMLResponse(content=f.read())
+        except:
+            return _HTMLResponse(content="<h1>Frontend not found</h1>", status_code=404)
+    
     # Przetwórz argumenty linii poleceń
     import argparse
     parser = argparse.ArgumentParser(description='MRD69 Monolit TURBO')
