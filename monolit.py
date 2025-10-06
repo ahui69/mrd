@@ -92,8 +92,8 @@ WEB_USER_AGENT = os.getenv("WEB_USER_AGENT", "MonolitBot/2.3")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL    = os.getenv("LLM_MODEL", "zai-org/GLM-4.5")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ")
+LLM_MODEL    = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
 LLM_TIMEOUT  = int(os.getenv("LLM_HTTP_TIMEOUT_S", "60"))
 
 EMBED_URL   = os.getenv("LLM_EMBED_URL","https://api.deepinfra.com/v1/openai/embeddings")
