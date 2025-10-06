@@ -85,6 +85,14 @@ try:
 except Exception as e:
     print(f"[WARN] files_endpoint not found: {e}")
 
+# Travel Endpoint (maps, geocoding, trip planning)
+try:
+    import travel_endpoint
+    app.include_router(travel_endpoint.router)
+    print("[OK] Travel endpoint loaded - /api/travel/*")
+except Exception as e:
+    print(f"[WARN] travel_endpoint not found: {e}")
+
 # Memory (opcjonalnie)
 try:
     from memory import (
