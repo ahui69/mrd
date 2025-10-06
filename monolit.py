@@ -65,6 +65,18 @@ try:
 except Exception as e:
     print(f"[WARN] psyche_endpoint not found: {e}")
 
+# Serve frontend
+from fastapi.responses import FileResponse, HTMLResponse
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    """Serve the main frontend HTML"""
+    try:
+        with open("/workspace/frontend.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Frontend not found. Please ensure frontend.html exists.</h1>", status_code=404)
+
 # Memory (opcjonalnie)
 try:
     from memory import (
