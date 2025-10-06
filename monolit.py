@@ -114,21 +114,15 @@ try:
 except Exception as e:
     print(f"[WARN] admin_endpoint not found: {e}")
 
-# Images Client
-try:
-    from images_client import router as images_router
-    app.include_router(images_router)
-    print("[OK] Images endpoint loaded - /images_client/*")
-except Exception as e:
-    print(f"[WARN] images_client not found: {e}")
-
-# Programista (Dev Tools)
-try:
-    from programista_endpoint import router as dev_router
-    app.include_router(dev_router)
-    print("[OK] Dev tools endpoint loaded - /api/dev/*")
-except Exception as e:
-    print(f"[WARN] programista_endpoint not found: {e}")
+# Paint Editor - Canvas drawing tool
+@app.get("/paint", response_class=HTMLResponse)
+async def serve_paint_editor():
+    """🎨 Serve Paint Editor"""
+    try:
+        with open("/workspace/paint.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Paint Editor not found</h1>", status_code=404)
 
 # Memory (opcjonalnie)
 try:
