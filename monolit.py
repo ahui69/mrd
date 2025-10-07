@@ -2703,6 +2703,19 @@ def chunk_text(text: str, max_words: int = 240, overlap: int = 60) -> List[str]:
         out.append(" ".join(words[i:i+max_words])); i+=step
     return out
 
+# =========================
+# Sports wrapper (FastAPI compatibility)
+# =========================
+def sports_scores(league: str = "nba") -> Dict[str, Any]:
+    """Wrapper do espn_scores z parametrem league.
+    Obsługuje: nba, nfl, nhl, mlb, epl, laliga, seriea, bundesliga.
+    """
+    kind = (league or "nba").lower()
+    try:
+        return {"ok": True, **espn_scores(kind)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 async def serpapi_search(q: str, engine: str = "google", params: dict = None) -> dict:
     if not SERPAPI_KEY: return {"ok": False, "error": "SERPAPI_KEY missing"}
     base = "https://serpapi.com/search.json"
