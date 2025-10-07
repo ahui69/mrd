@@ -446,6 +446,11 @@ def system_package(_=Depends(_auth)):
         "serpapi": bool(M.SERPAPI_KEY),
         "firecrawl": bool(M.FIRECRAWL_KEY),
     }
+    # public client key for tiles (if present)
+    try:
+        data["maptiler_key"] = os.getenv("MAPTILER_KEY", "")
+    except Exception:
+        pass
     return {"ok": True, "package": data}
 
 @router.post("/system/reload")
