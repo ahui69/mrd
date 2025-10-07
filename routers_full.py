@@ -212,6 +212,14 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
         except:
             pass
 
+    # 2b) LTM kontekst hybrydowy
+    ltm_ctx = ""
+    try:
+        if last_user and hasattr(M, "ltm_context_for_prompt"):
+            ltm_ctx = M.ltm_context_for_prompt(last_user, limit=8) or ""
+    except:
+        pass
+
     # 3) Wykrywanie zamiaru (intent)
     intent = "chat"
     if last_user:
@@ -257,6 +265,7 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
     # 5) Zbuduj system prompt
     sys_parts = []
     if stm_ctx: sys_parts.append("STM:\n" + stm_ctx)
+    if ltm_ctx: sys_parts.append("LTM:\n" + ltm_ctx)
     if research_ctx: sys_parts.append("RESEARCH:\n" + research_ctx)
     if news_items:
         lines = [f"- {it.get('title','')} — {it.get('url','')}" for it in news_items[:body.topk]]

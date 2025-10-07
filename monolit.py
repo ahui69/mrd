@@ -2123,7 +2123,7 @@ def ltm_search_hybrid(q: str, limit: int = 30)->List[Dict[str,Any]]:
     except Exception:
         s_emb=[0.0]*len(docs)
 
-    scores=_blend_scores(s_tfidf, s_bm25, s_emb, wt=(0.44,0.32,0.24))
+    scores=_blend_scores(s_tfidf, s_bm25, s_emb, wt=(0.48,0.30,0.22))
     pack=[(scores[i], rows[i]) for i in range(len(rows))]
     pack.sort(key=lambda x:x[0], reverse=True)
 
@@ -2131,6 +2131,21 @@ def ltm_search_hybrid(q: str, limit: int = 30)->List[Dict[str,Any]]:
     for sc,r in pack[:limit]:
         res.append({"id":r["id"],"text":r["text"],"tags":r["tags"],"conf":r["conf"],"created":r["created"],"score":float(sc)})
     return res
+
+def ltm_context_for_prompt(query: str, limit: int = 8) -> str:
+    """
+    Buduje zwięzły blok kontekstu z LTM do podania jako system prompt.
+    Priorytet: najwyższy score, bez powtórzeń, krótkie zdania.
+    """
+    items = ltm_search_hybrid(query, limit=limit)
+    seen = set(); lines = []
+    for it in items:
+        t = (it.get("text") or "").strip()
+        key = re.sub(r"\W+"," ", t.lower())[:120]
+        if not t or key in seen: continue
+        seen.add(key)
+        lines.append(t)
+    return "\n".join(lines[:limit])
 
 # =========================
 # STM ROTACJA 160→(100→LTM)+(60 w STM)
