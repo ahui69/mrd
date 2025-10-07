@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mordzix-v1';
+const CACHE_NAME = 'mordzix-v3';
 const ASSETS = [
   '/', '/static/style.css', '/static/app.js', '/static/manifest.webmanifest'
 ];

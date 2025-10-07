@@ -4,7 +4,8 @@ html,body{height:100%;margin:0;padding:0}
 :root{
   --bg:#0b0b0f;--panel:#121219;--ink:#f6f090;--muted:#c2bf8f;--primary:#ffd84a;--border:#2a2a34;
 }
-body{font:16px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+@font-face{font-family:'InterVar';font-weight:100 900;font-display:swap;src:local('Inter'),local('InterVariable'),url('https://rsms.me/inter/font-files/Inter-roman.var.woff2?v=4.0') format('woff2');}
+body{font:16px/1.45 InterVar,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
 
 /* Layout */
 #app{display:grid;grid-template-columns:0 1fr;grid-template-rows:100dvh;max-width:100vw;overflow:hidden}
@@ -28,7 +29,7 @@ body{font:16px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Inter,Helve
 .controls .row{display:flex;gap:8px}
 .controls input{flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#14141d;color:var(--ink)}
 .controls button{padding:8px 10px;border:1px solid var(--primary);border-radius:10px;background:var(--primary);color:#000;cursor:pointer}
-.msg{max-width:70ch;padding:10px 12px;border-radius:14px;border:1px solid var(--border);background:#191922;margin:10px 0;word-wrap:break-word;white-space:pre-wrap;color:var(--ink)}
+.msg{max-width:min(80ch,92vw);padding:12px 14px;border-radius:16px;border:1px solid var(--border);background:#191922;margin:10px 0;word-wrap:break-word;white-space:pre-wrap;color:var(--ink);box-shadow:0 1px 0 rgba(255,216,74,.08)}
 .msg.user{margin-left:auto;background:#222230;border-color:#3a3a44}
 .msg.assistant{margin-right:auto;background:#15151f}
 
