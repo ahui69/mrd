@@ -26,6 +26,22 @@
     </aside>
     <main id="main">
       <div id="chat" class="chat" aria-live="polite" aria-busy="false"></div>
+      <div id="controls" class="controls">
+        <details id="learnBox"><summary>Nauka</summary>
+          <div class="row">
+            <input id="learnInput" type="text" placeholder="Hasło do nauki (research)" />
+            <button id="learnBtn">Ucz</button>
+          </div>
+        </details>
+        <details id="mapBox"><summary>Mapa trasy</summary>
+          <div class="row">
+            <input id="origin" type="text" placeholder="Skąd" />
+            <input id="destination" type="text" placeholder="Dokąd" />
+            <button id="mapBtn">Pokaż</button>
+          </div>
+          <img id="mapImg" alt="Mapa" style="max-width:100%;display:none" />
+        </details>
+      </div>
       <form id="composer" autocomplete="off">
         <label class="file">
           <input id="fileInput" type="file" multiple accept="image/*,video/*,.pdf,.txt,.md,.doc,.docx,.xls,.xlsx,.csv" />

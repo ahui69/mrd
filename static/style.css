@@ -23,6 +23,11 @@ body{font:16px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Inter,Helve
 .links a{font-size:12px;color:var(--muted);text-decoration:none}
 
 .chat{flex:1;overflow:auto;padding:16px}
+.controls{padding:8px 16px;border-top:1px solid var(--border);background:#0f0f15;color:var(--ink)}
+.controls details{margin:8px 0}
+.controls .row{display:flex;gap:8px}
+.controls input{flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#14141d;color:var(--ink)}
+.controls button{padding:8px 10px;border:1px solid var(--primary);border-radius:10px;background:var(--primary);color:#000;cursor:pointer}
 .msg{max-width:70ch;padding:10px 12px;border-radius:14px;border:1px solid var(--border);background:#191922;margin:10px 0;word-wrap:break-word;white-space:pre-wrap;color:var(--ink)}
 .msg.user{margin-left:auto;background:#222230;border-color:#3a3a44}
 .msg.assistant{margin-right:auto;background:#15151f}

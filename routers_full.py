@@ -39,6 +39,7 @@ class AssistantBody(BaseModel):
     allow_sports: bool = True
     save_memory: bool = True
     topk: int = 8
+    force_intent: T.Optional[str] = None  # chat|research|news|sports
 
 class TravelPlanBody(BaseModel):
     city: str
@@ -285,6 +286,10 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
             intent = "sports"
         elif body.allow_research and any(w in lu for w in ("wyszukaj", "źródła", "research", "źródło", "źrodła", "zrób research", "poszukaj", "znajdź artykuły")):
             intent = "research"
+
+    # 3b) Wymuszenie zamiaru
+    if (body.force_intent or "").lower() in ("chat","research","news","sports"):
+        intent = body.force_intent.lower()
 
     # 4) Narzędzia wg intencji
     research_ctx, research_sources = "", []

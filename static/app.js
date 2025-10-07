@@ -245,3 +245,41 @@ els.mic.addEventListener('click', ()=>{
   }
   setInterval(()=>localStorage.setItem('LAST_ACTIVE_TS', String(lastActiveTs)), 5000);
 })();
+
+// Learn (research)
+document.getElementById('learnBtn').addEventListener('click', async ()=>{
+  const q = document.getElementById('learnInput').value.trim();
+  if(!q) return;
+  if(!currentChatId) createChat();
+  const chat = getChat();
+  chat.messages.push({role:'user', content: q}); addMsg('user', q); saveChats();
+  setTyping(true);
+  try{
+    const payload = toAssistantPayload();
+    payload.force_intent = 'research';
+    const res = await fetch(`${BASE}/api/assistant/chat`,{
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${AUTH_TOKEN}`}, body: JSON.stringify(payload)
+    });
+    const j = await res.json();
+    const answer = j.answer || '';
+    chat.messages.push({role:'assistant', content: answer}); addMsg('assistant', answer); saveChats();
+  }catch(e){ addMsg('assistant', 'Błąd nauki: '+e.message); }
+  finally{ setTyping(false); }
+});
+
+// Map
+document.getElementById('mapBtn').addEventListener('click', async ()=>{
+  const o = document.getElementById('origin').value.trim();
+  const d = document.getElementById('destination').value.trim();
+  if(!o || !d) return;
+  try{
+    const url = `${BASE}/api/travel/map/static?origin=${encodeURIComponent(o)}&destination=${encodeURIComponent(d)}&size=800x400`;
+    const img = document.getElementById('mapImg');
+    img.src = url; img.style.display = 'block';
+    // Doklej do czatu
+    addMsg('assistant', `Mapa trasy: ${o} → ${d}`);
+    const imgNode = document.createElement('img'); imgNode.src = url; imgNode.style.maxWidth = '100%';
+    const holder = document.createElement('div'); holder.className = 'msg assistant'; holder.appendChild(imgNode); els.chat.appendChild(holder);
+    els.chat.scrollTop = els.chat.scrollHeight;
+  }catch(e){ addMsg('assistant','Błąd mapy: '+e.message); }
+});
