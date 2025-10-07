@@ -310,3 +310,40 @@ document.getElementById('mapBtn').addEventListener('click', async ()=>{
     L.marker([0,0]).addTo(map).bindPopup(d);
   }catch(e){ addMsg('assistant','Błąd mapy: '+e.message); }
 });
+
+// Memory panel actions
+document.getElementById('memStmBtn').addEventListener('click', async ()=>{
+  try{
+    const r = await fetch(`${BASE}/api/memory/context`, {headers:{'Authorization':`Bearer ${AUTH_TOKEN}`}});
+    const j = await r.json();
+    const list = document.getElementById('memList');
+    list.innerHTML = '<b>STM:</b><br>' + (j.items||[]).map(x=>`${x.role}: ${x.content}`).join('<br>');
+  }catch(e){ alert('STM błąd'); }
+});
+
+document.getElementById('memSearchBtn').addEventListener('click', async ()=>{
+  const q = document.getElementById('memQuery').value.trim(); if(!q) return;
+  try{
+    const r = await fetch(`${BASE}/api/ltm/search?q=${encodeURIComponent(q)}`, {headers:{'Authorization':`Bearer ${AUTH_TOKEN}`}});
+    const j = await r.json();
+    const list = document.getElementById('memList');
+    list.innerHTML = '<b>LTM:</b><br>' + (j.items||[]).map(x=>`${(x.id||'').slice(0,6)} ${x.text}`).join('<br>');
+  }catch(e){ alert('LTM błąd'); }
+});
+
+document.getElementById('memReindexBtn').addEventListener('click', async ()=>{
+  try{
+    await fetch(`${BASE}/api/ltm/reindex`, {method:'POST', headers:{'Authorization':`Bearer ${AUTH_TOKEN}`}});
+    alert('Zreindeksowano LTM');
+  }catch(e){ alert('Błąd reindex'); }
+});
+
+document.getElementById('memSaveLastBtn').addEventListener('click', async ()=>{
+  const nodes = [...els.chat.querySelectorAll('.msg.assistant')];
+  const last = nodes[nodes.length-1]; if(!last) return alert('Brak odpowiedzi');
+  const text = last.textContent || '';
+  try{
+    await fetch(`${BASE}/api/ltm/add`, {method:'POST', headers:{'Authorization':`Bearer ${AUTH_TOKEN}`, 'Content-Type':'application/json'}, body: JSON.stringify({text, tags:'chat,manual', conf:0.72})});
+    alert('Zapisano do LTM');
+  }catch(e){ alert('Błąd zapisu LTM'); }
+});

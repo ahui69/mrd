@@ -2059,6 +2059,14 @@ def ltm_soft_delete(id_or_text: str)->int:
     c.execute("UPDATE facts SET deleted=1 WHERE id=?", (tid,))
     conn.commit(); n=c.rowcount; conn.close(); return n
 
+def ltm_delete(id: str) -> Dict[str, Any]:
+    """Soft delete by id (sha1)."""
+    try:
+        n = ltm_soft_delete(id)
+        return {"ok": True, "deleted": int(n)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 def _fts_safe_query(q: str) -> str:
     toks=[t for t in _tok(q) if t]
     if not toks: return '""'
