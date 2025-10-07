@@ -136,6 +136,24 @@ def ltm_reindex(_=Depends(_auth)):
         raise HTTPException(500, "ltm_reindex() not available")
     return {"ok": True, **M.ltm_reindex()}
 
+@router.post("/ltm/import")
+def ltm_import(body: T.Dict[str, T.Any], _=Depends(_auth)):
+    items = body.get("items") or []
+    if not isinstance(items, list):
+        raise HTTPException(400, "items must be a list")
+    added = 0
+    for it in items:
+        try:
+            txt = (it.get("text") or "").strip()
+            tags = (it.get("tags") or "").strip()
+            conf = float(it.get("conf", 0.7))
+            if txt:
+                if hasattr(M, "ltm_add"): M.ltm_add(txt, tags=tags, conf=conf)
+                added += 1
+        except Exception:
+            pass
+    return {"ok": True, "added": added}
+
 # --- MEMORY (STM) ---
 @router.post("/memory/add")
 def memory_add(body: T.Dict[str,T.Any], _=Depends(_auth)):
