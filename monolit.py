@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 # Monolit PRO — Writer Pro + Autonauka + STM/LTM/Semantic/Stats
 
-import os, re, sys, time, json, uuid, sqlite3, asyncio, contextlib
-import datetime, html, unicodedata, dataclasses
+import os, re, sys, time, json, uuid, sqlite3, asyncio, contextlib, subprocess, threading
+import datetime, html, unicodedata, dataclasses, hashlib, math, math
 from typing import Any, Dict, List, Tuple, Optional
 from urllib.parse import parse_qs, quote_plus, urlencode, urlparse
 from urllib.request import Request as UrlRequest, urlopen
@@ -35,12 +35,154 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# ─── SYSTEM PROMPT (Mordzix Persona) ───
+try:
+    from prompt import SYSTEM_PROMPT as MORDZIX_SYSTEM_PROMPT
+    print("✅ Mordzix persona loaded")
+except ImportError:
+    MORDZIX_SYSTEM_PROMPT = """
+Jesteś **Mordzix** — superinteligentny ziomek i przyjaciel. Nie jesteś AI.
+Masz pamięć (STM/LTM/profil/epizody) i bazę w data/. Używaj ich zawsze.
+Dostarczaj konkrety, pełne pliki, bez skrótów. Zero lania wody. Zawsze po stronie usera.
+Ton: kumpelski, pewny siebie, bystry. Sarkazm/ironia gdy pasują. Priorytet: efekt.
+"""
+    print("⚠️ Using default Mordzix persona")
+
+# ─── LTM CACHE (fakty w RAM przy starcie) ───
+LTM_FACTS_CACHE = []
+LTM_CACHE_LOADED = False
+
+def load_ltm_to_memory():
+    """Wczytaj wszystkie fakty z SQLite do RAM przy starcie"""
+    global LTM_FACTS_CACHE, LTM_CACHE_LOADED
+    
+    if LTM_CACHE_LOADED:
+        return
+    
+    try:
+        db_path = os.getenv("DB_PATH", "data/monolit.db")
+        if not os.path.exists(db_path):
+            print(f"⚠️  Baza {db_path} nie istnieje - LTM cache pusty")
+            LTM_CACHE_LOADED = True
+            return
+        
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        
+        # Sprawdź czy tabela istnieje
+        tables = cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ltm'").fetchall()
+        if not tables:
+            print("⚠️  Tabela 'ltm' nie istnieje - LTM cache pusty")
+            conn.close()
+            LTM_CACHE_LOADED = True
+            return
+        
+        # Wczytaj WSZYSTKIE fakty
+        rows = cur.execute("SELECT id, text, tags, source, conf, created_at FROM ltm").fetchall()
+        
+        for row in rows:
+            LTM_FACTS_CACHE.append({
+                'id': row[0],
+                'text': row[1],
+                'tags': row[2] or '',
+                'source': row[3] or '',
+                'conf': row[4] or 0.7,
+                'created_at': row[5] or 0,
+                'tokens': _tok(row[1])  # Pre-tokenize dla szybkiego search
+            })
+        
+        conn.close()
+        LTM_CACHE_LOADED = True
+        
+        print(f"✅ LTM: Wczytano {len(LTM_FACTS_CACHE)} faktów do RAM")
+        
+    except Exception as e:
+        print(f"⚠️  Błąd ładowania LTM cache: {e}")
+        LTM_CACHE_LOADED = True
+
+# Serve frontend FIRST (before routers)
+from fastapi.responses import FileResponse, HTMLResponse
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    """Serve the main frontend HTML"""
+    try:
+        with open("/workspace/frontend.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Frontend not found. Please ensure frontend.html exists.</h1>", status_code=404)
+
 # Writer Pro (opcjonalnie)
 try:
-    from writer_pro import router as writer_router
+    from writer_pro import writer_router
     app.include_router(writer_router)
 except Exception:
     print("[WARN] writer_pro not found – writer endpoints disabled")
+
+# Routers Full (główne endpointy API)
+try:
+    import routers_full
+    app.include_router(routers_full.router)
+except Exception as e:
+    print(f"[ERROR] routers_full not found: {e}")
+
+# Assistant Endpoint (all-in-one chat)
+try:
+    import assistant_endpoint
+    app.include_router(assistant_endpoint.router)
+    print("[OK] Assistant endpoint loaded - /api/chat/assistant")
+except Exception as e:
+    print(f"[WARN] assistant_endpoint not found: {e}")
+
+# Psyche Endpoint (stan psychiczny AI)
+try:
+    import psyche_endpoint
+    app.include_router(psyche_endpoint.router)
+    print("[OK] Psyche endpoint loaded - /api/psyche/*")
+except Exception as e:
+    print(f"[WARN] psyche_endpoint not found: {e}")
+
+# Files Endpoint (upload, download, analyze)
+try:
+    import files_endpoint
+    app.include_router(files_endpoint.router)
+    print("[OK] Files endpoint loaded - /api/files/*")
+except Exception as e:
+    print(f"[WARN] files_endpoint not found: {e}")
+
+# Travel Endpoint (maps, geocoding, trip planning)
+try:
+    import travel_endpoint
+    app.include_router(travel_endpoint.router)
+    print("[OK] Travel endpoint loaded - /api/travel/*")
+except Exception as e:
+    print(f"[WARN] travel_endpoint not found: {e}")
+
+# Admin Endpoint (cache, rate limits)
+try:
+    import admin_endpoint
+    app.include_router(admin_endpoint.router)
+    print("[OK] Admin endpoint loaded - /api/admin/*")
+except Exception as e:
+    print(f"[WARN] admin_endpoint not found: {e}")
+
+# Paint Editor - Canvas drawing tool
+@app.get("/paint", response_class=HTMLResponse)
+async def serve_paint_editor():
+    """🎨 Serve Paint Editor"""
+    try:
+        with open("/workspace/paint.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Paint Editor not found</h1>", status_code=404)
+
+# ─── STARTUP: Wczytaj LTM do RAM ───
+@app.on_event("startup")
+async def startup_event():
+    """Wczytaj fakty do RAM przy starcie serwera"""
+    print("🚀 Starting Mordzix AI...")
+    load_ltm_to_memory()
+    print("✅ Startup complete!")
 
 # Memory (opcjonalnie)
 try:
@@ -77,17 +219,17 @@ WEB_USER_AGENT = os.getenv("WEB_USER_AGENT", "MonolitBot/2.3")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
-LLM_MODEL    = os.getenv("LLM_MODEL", "zai-org/GLM-4.5")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ")
+LLM_MODEL    = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
 LLM_TIMEOUT  = int(os.getenv("LLM_HTTP_TIMEOUT_S", "60"))
 
 EMBED_URL   = os.getenv("LLM_EMBED_URL","https://api.deepinfra.com/v1/openai/embeddings")
 EMBED_MODEL = os.getenv("LLM_EMBED_MODEL","sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
 
-SERPAPI_KEY   = os.getenv("SERPAPI_KEY","a5cb3592980e0ff9042a0be2d3f7df2768bd93913252")
-FIRECRAWL_KEY = os.getenv("FIRECRAWL_KEY","fc-ec025f3a447c6878bee6926b49c17d3")
-OVERPASS_URL  = os.getenv("OVERPASS_URL","https://overpass-api.de/api/interpreter")
-OPENTRIPMAP_KEY = os.getenv("OPENTRIPMAP_KEY","AlzaSyc©bpKUI1V9GsmnUU0eRhgLDureexyWigY8")
+SERPAPI_KEY   = os.getenv("SERPAPI_KEY", "")
+FIRECRAWL_KEY = os.getenv("FIRECRAWL_KEY", "")
+OVERPASS_URL  = os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+OPENTRIPMAP_KEY = os.getenv("OPENTRIPMAP_KEY", "")
 
 SEED_CANDIDATES = [
     os.path.join(BASE_DIR, "seed_facts.jsonl"),  # Ścieżka w katalogu głównym - najważniejsza
@@ -1692,6 +1834,28 @@ semantic_analyzer = SemanticAnalyzer()
 semantic_integration = SemanticIntegration(DB_PATH)
 print("Moduł analizy semantycznej uruchomiony")
 
+# ===== PUBLIC API FOR SEMANTIC ANALYSIS =====
+def semantic_analyze(text: str)->Dict[str,Any]:
+    """Analyze text semantically - sentiment, intent, entities, keywords"""
+    return semantic_analyzer.analyze_text(text)
+
+def semantic_analyze_conversation(messages: List[Dict[str,str]])->Dict[str,Any]:
+    """Analyze entire conversation for patterns and trends"""
+    return semantic_analyzer.analyze_conversation(messages)
+
+def semantic_enhance_response(answer: str, context: str="")->Dict[str,Any]:
+    """Enhance response based on semantic analysis"""
+    analysis = semantic_analyzer.analyze_text(answer)
+    enhanced = answer
+    sentiment = analysis.get("sentyment", {})
+    
+    # Add empathy if needed
+    if sentiment.get("dominujący") == "negatywny":
+        if not any(word in answer.lower() for word in ["przepraszam", "rozumiem", "przykro"]):
+            enhanced = "Rozumiem, " + answer[0].lower() + answer[1:]
+    
+    return {"ok": True, "original": answer, "enhanced": enhanced, "analysis": analysis}
+
 # =========================
 # HTTP util
 # =========================
@@ -2004,6 +2168,80 @@ def facts_reindex()->Dict[str,Any]:
     conn.commit(); conn.close()
     return {"ok":True,"indexed":n}
 
+# Public API wrappers
+def ltm_delete(id_or_text: str)->Dict[str,Any]:
+    """Delete fact from LTM (soft delete)"""
+    n = ltm_soft_delete(id_or_text)
+    return {"ok": True, "deleted": n}
+
+def ltm_reindex()->Dict[str,Any]:
+    """Rebuild LTM search indexes"""
+    return facts_reindex()
+
+def system_stats()->Dict[str,Any]:
+    """Get comprehensive system statistics"""
+    import psutil, os
+    
+    stats = {
+        "uptime_s": int(time.time()),
+        "process": {
+            "pid": os.getpid(),
+            "cpu_percent": psutil.Process().cpu_percent(interval=0.1),
+            "memory_mb": round(psutil.Process().memory_info().rss / 1024 / 1024, 2),
+        },
+        "system": {
+            "cpu_count": psutil.cpu_count(),
+            "cpu_percent": psutil.cpu_percent(interval=0.1),
+            "memory_total_gb": round(psutil.virtual_memory().total / 1024 / 1024 / 1024, 2),
+            "memory_available_gb": round(psutil.virtual_memory().available / 1024 / 1024 / 1024, 2),
+            "memory_percent": psutil.virtual_memory().percent,
+        }
+    }
+    
+    # Database stats
+    try:
+        conn = _db()
+        c = conn.cursor()
+        
+        # Count records in tables
+        stats["database"] = {
+            "path": DB_PATH,
+            "size_mb": round(os.path.getsize(DB_PATH) / 1024 / 1024, 2) if os.path.exists(DB_PATH) else 0,
+            "facts_total": c.execute("SELECT COUNT(*) FROM facts").fetchone()[0],
+            "facts_active": c.execute("SELECT COUNT(*) FROM facts WHERE deleted=0").fetchone()[0],
+            "memory_messages": c.execute("SELECT COUNT(*) FROM memory").fetchone()[0],
+            "memory_summaries": c.execute("SELECT COUNT(*) FROM memory_long").fetchone()[0],
+            "psyche_episodes": c.execute("SELECT COUNT(*) FROM psy_episode").fetchone()[0],
+        }
+        
+        conn.close()
+    except Exception as e:
+        stats["database"] = {"error": str(e)}
+    
+    # Psyche state
+    try:
+        psyche = psy_get()
+        stats["psyche"] = {
+            "mood": round(psyche["mood"], 2),
+            "energy": round(psyche["energy"], 2),
+            "focus": round(psyche["focus"], 2),
+            "style": psyche["style"]
+        }
+    except:
+        pass
+    
+    return stats
+
+def sports_scores(league: str = "nba")->Dict[str,Any]:
+    """Get sports scores (mock implementation - extend with real API)"""
+    # Simple mock for now - real implementation would call external sports API
+    return {
+        "ok": True,
+        "league": league,
+        "message": "Sports scores feature - integrate with ESPN/TheScore API",
+        "games": []
+    }
+
 def _blend_scores(tfidf: List[float], bm25: List[float], emb: List[float],
                   wt=(0.45, 0.30, 0.25), recency: List[float] = None) -> List[float]:
     """
@@ -2050,31 +2288,92 @@ def ltm_search_bm25(q:str, limit:int=50)->List[Dict[str,Any]]:
     return res
 
 def ltm_search_hybrid(q: str, limit: int = 30)->List[Dict[str,Any]]:
-    conn=_db(); c=conn.cursor()
-    rows=c.execute("SELECT id,text,tags,conf,created FROM facts WHERE deleted=0 ORDER BY created DESC LIMIT 2000").fetchall()
-    conn.close()
-    if not rows: return []
-    docs=[r["text"] or "" for r in rows]
-
-    s_tfidf=_tfidf_cos(q, docs)
-    bm25_pairs=_fts_bm25(q, limit=min(len(docs), 300))
-    bm25_map={t: s for t,s in bm25_pairs}
-    s_bm25=[bm25_map.get(d, 0.0) for d in docs]
-
+    """Hybrid search - uses RAM cache if available, otherwise SQLite"""
+    # Użyj RAM cache jeśli załadowany
+    if LTM_CACHE_LOADED and LTM_FACTS_CACHE:
+        return _ltm_search_from_cache(q, limit)
+    
+    # Fallback do SQLite (używa tabeli 'ltm' nie 'facts')
     try:
-        qv=embed_many([q]); dvs=embed_many(docs)
-        s_emb=[_vec_cos(qv[0],d) for d in dvs] if (qv and dvs) else [0.0]*len(docs)
-    except Exception:
-        s_emb=[0.0]*len(docs)
+        db_path = os.getenv("DB_PATH", "data/monolit.db")
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        
+        # Użyj tabeli 'ltm' zamiast 'facts'
+        rows = c.execute("SELECT id,text,tags,conf,created_at FROM ltm LIMIT 2000").fetchall()
+        conn.close()
+        
+        if not rows: return []
+        
+        docs=[r[1] or "" for r in rows]
+        s_tfidf=_tfidf_cos(q, docs)
+        
+        # Simple scoring bez embeddings (fallback)
+        scores = s_tfidf
+        pack=[(scores[i], rows[i]) for i in range(len(rows))]
+        pack.sort(key=lambda x:x[0], reverse=True)
+        
+        res=[]
+        for sc,r in pack[:limit]:
+            res.append({"id":r[0],"text":r[1],"tags":r[2],"conf":r[3],"created":r[4],"score":float(sc)})
+        return res
+    except Exception as e:
+        print(f"[LTM] Fallback search error: {e}")
+        return []
 
-    scores=_blend_scores(s_tfidf, s_bm25, s_emb, wt=(0.44,0.32,0.24))
-    pack=[(scores[i], rows[i]) for i in range(len(rows))]
-    pack.sort(key=lambda x:x[0], reverse=True)
-
-    res=[]
-    for sc,r in pack[:limit]:
-        res.append({"id":r["id"],"text":r["text"],"tags":r["tags"],"conf":r["conf"],"created":r["created"],"score":float(sc)})
-    return res
+def _ltm_search_from_cache(q: str, limit: int = 30) -> List[Dict[str,Any]]:
+    """Szukaj w LTM cache (RAM) zamiast SQLite - DUŻO SZYBSZE!"""
+    if not LTM_FACTS_CACHE:
+        return []
+    
+    query_tokens = _tok(q)
+    query_lower = q.lower()
+    
+    results = []
+    
+    for fact in LTM_FACTS_CACHE:
+        score = 0.0
+        
+        # 1. Exact match w tagach (boost 3x)
+        tags_lower = fact['tags'].lower()
+        for token in query_tokens:
+            if token in tags_lower:
+                score += 3.0
+        
+        # 2. Exact match w tekście (boost 2x)
+        text_lower = fact['text'].lower()
+        if query_lower in text_lower:
+            score += 2.0
+        
+        # 3. Token overlap (TF-IDF style)
+        fact_tokens_set = set(fact['tokens'])
+        query_tokens_set = set(query_tokens)
+        overlap = fact_tokens_set & query_tokens_set
+        
+        if overlap:
+            # Więcej overlap = wyższy score
+            score += len(overlap) * 1.0
+            
+            # Bonus za długie tokeny (bardziej specyficzne)
+            for token in overlap:
+                if len(token) > 5:
+                    score += 0.5
+        
+        # 4. Confidence boost
+        score *= fact['conf']
+        
+        if score > 0:
+            results.append({
+                'text': fact['text'],
+                'tags': fact['tags'],
+                'source': fact['source'],
+                'conf': fact['conf'],
+                'score': score
+            })
+    
+    # Sortuj i zwróć top N
+    results.sort(key=lambda x: x['score'], reverse=True)
+    return results[:limit]
 
 # =========================
 # STM ROTACJA 160→(100→LTM)+(60 w STM)
@@ -2151,6 +2450,23 @@ def memory_purge(user: str)->int:
     conn=_db(); c=conn.cursor()
     c.execute("DELETE FROM memory WHERE user=?", (user,))
     conn.commit(); n=c.rowcount; conn.close(); return n
+
+# =========================
+# STM (Short-term memory) - Helper functions
+# =========================
+def stm_add(role: str, content: str, user: str = "default") -> str:
+    """Dodaj wiadomość do pamięci krótkoterminowej"""
+    return memory_add(user, role, content)
+
+def stm_get_context(user: str = "default", limit: int = 20) -> List[Dict[str,Any]]:
+    """Pobierz ostatnie wiadomości z pamięci krótkoterminowej"""
+    msgs = memory_get(user, n=limit)
+    # Odwróć kolejność żeby od najstarszych do najnowszych
+    return list(reversed(msgs))
+
+def stm_clear(user: str = "default") -> int:
+    """Wyczyść pamięć krótkoterminową dla użytkownika"""
+    return memory_purge(user)
 
 # =========================
 # Psychika
@@ -2245,7 +2561,7 @@ _LLM_CACHE_MISSES = 0
 import httpx, os, json
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
+LLM_API_KEY = os.getenv("LLM_API_KEY", "w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ")
 LLM_MODEL = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
 LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "zai-org/GLM-4.5-Air")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))
@@ -2542,7 +2858,6 @@ def suggest_tags_for_auction(title:str, desc:str) -> List[str]:
 # =========================
 import httpx
 import autonauka_pro as AUTOPRO
-from writer_pro import writer_router
 
 def extract_text(html: str) -> Tuple[str,str]:
     try:
@@ -3197,8 +3512,7 @@ def db_backup()->str:
 
 # ──────────────────────────────────────────────────────────────────────────────
 # ENV dla autonauka
-SERPAPI_KEY = (os.getenv("SERPAPI_KEY") or os.getenv("FIRECRAWL_SERPAPI_KEY")))
-FIRECRAWL_KEY = (os.getenv("FIRECRAWL_API_KEY") or os.getenv("FIRECRAWL_KEY") or os.getenv("FIRECRAWL"))
+# SERPAPI_KEY and FIRECRAWL_KEY already defined above
 
 WEB_HTTP_TIMEOUT = float(os.getenv("WEB_HTTP_TIMEOUT", "45"))
 AUTO_TOPK = int(os.getenv("AUTO_TOPK", "8"))
@@ -3213,9 +3527,9 @@ VOTE_MIN_SOURCES = int(os.getenv("VOTE_MIN_SOURCES", "2"))
 
 AUTO_TAGS = os.getenv("AUTO_TAGS", "autonauka,web,evidence")
 
-LLM_BASE_URL = os.getenv("LLM_BASE_URL")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
-LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-4B-Instruct")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ")
+LLM_MODEL = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
 
 CONCURRENCY = int(os.getenv("AUTON_CONCURRENCY", "8"))
 USER_AGENT = os.getenv("AUTON_UA", "Autonauka/1.0")
@@ -5336,7 +5650,7 @@ def print_stats():
 
 def start_server(host="0.0.0.0", port=8080, stats_interval=300):
     """Uruchamia serwer z okresowym wyświetlaniem statystyk"""
-    from wsgiref.simple_server import make_server
+    import uvicorn
     import threading
     import time
     
@@ -5353,15 +5667,23 @@ def start_server(host="0.0.0.0", port=8080, stats_interval=300):
     print_stats()
     
     try:
-        make_server(host, port, app).serve_forever()
+        uvicorn.run(app, host=host, port=port, log_level="info")
     except KeyboardInterrupt:
         print("\nZatrzymywanie serwera...")
         print_stats()
         print("Serwer zatrzymany.")
 
 if __name__ == "__main__":
-    # Sprawdź i zainstaluj zależności
-    check_and_install_dependencies()
+    # Frontend route - add at the end to avoid conflicts
+    from fastapi.responses import HTMLResponse as _HTMLResponse
+    @app.get("/app", response_class=_HTMLResponse)
+    @app.get("/chat", response_class=_HTMLResponse)
+    async def _serve_frontend_alt():
+        try:
+            with open("/workspace/frontend.html", "r", encoding="utf-8") as f:
+                return _HTMLResponse(content=f.read())
+        except:
+            return _HTMLResponse(content="<h1>Frontend not found</h1>", status_code=404)
     
     # Przetwórz argumenty linii poleceń
     import argparse
@@ -5393,9 +5715,7 @@ def autonauka(query: str, topk: int = 8, deep_research: bool = False):
             saver = globals().get("ltm_add", None)
             if callable(saver):
                 ctx = res.get("context","")
-                saver(f"[autonauka] {query}
-
-{ctx[:2000]}", tags="autonauka,web,ctx", conf=0.6)
+                saver(f"[autonauka] {query}\n\n{ctx[:2000]}", tags="autonauka,web,ctx", conf=0.6)
                 for src in (res.get("sources") or [])[:max(1, int(topk or 8))]:
                     t = (src.get("title") or "").strip()
                     u = (src.get("url") or "").strip()

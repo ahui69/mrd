@@ -1,5 +1,23 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+autonauka_pro.py — v2 (sync, PRO)
+- SERPAPI + DuckDuckGo + Firecrawl (search + scrape)
+- twarde retry + timeouts, canonical URL, limit domen
+- czyszczenie HTML/MD, ekstrakcja cytatów, chunkowanie
+- SimHash dedup (między chunkami i źródłami)
+- ranking per-źródło + globalny
+- tagowanie; zapis do LTM (jeśli dostępny monolit)
+- kontekst z oznaczeniami [n] -> sources[n-1]
+Zachowuje sygnaturę: autonauka(query, topk=8, deep_research=False, use_external_module=True)
+"""
 
+from __future__ import annotations
 import httpx, re, html as _html
+import os, time, math, hashlib, random
+from typing import Any, Dict, List, Tuple
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+from bs4 import BeautifulSoup
 
 def _ddg_search_html(q, limit=10, timeout=12):
     url = "https://duckduckgo.com/html/"
@@ -20,28 +38,6 @@ def _ddg_search_html(q, limit=10, timeout=12):
     except Exception:
         pass
     return out
-
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-autonauka_pro.py — v2 (sync, PRO)
-- SERPAPI + DuckDuckGo + Firecrawl (search + scrape)
-- twarde retry + timeouts, canonical URL, limit domen
-- czyszczenie HTML/MD, ekstrakcja cytatów, chunkowanie
-- SimHash dedup (między chunkami i źródłami)
-- ranking per-źródło + globalny
-- tagowanie; zapis do LTM (jeśli dostępny monolit)
-- kontekst z oznaczeniami [n] -> sources[n-1]
-Zachowuje sygnaturę: autonauka(query, topk=8, deep_research=False, use_external_module=True)
-"""
-
-from __future__ import annotations
-import os, re, html, time, math, hashlib, random
-from typing import Any, Dict, List, Tuple
-from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
-
-import httpx
-from bs4 import BeautifulSoup
 
 # spróbuj podpiąć monolit
 try:
