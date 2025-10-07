@@ -170,7 +170,8 @@ MORDZIX_SYSTEM_PROMPT = (
 
 # Static and uploads serving (po zdefiniowaniu katalogów)
 try:
-    STATIC_DIR = os.path.join(BASE_DIR, "static")
+    STATIC_DIR_CANDIDATES = [os.path.join(BASE_DIR, "static"), "/workspace/static"]
+    STATIC_DIR = next((p for p in STATIC_DIR_CANDIDATES if os.path.isdir(p)), STATIC_DIR_CANDIDATES[0])
     os.makedirs(STATIC_DIR, exist_ok=True)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
@@ -179,9 +180,9 @@ except Exception as _e:
 
 @app.get("/")
 def index_page():
-    index_path = os.path.join(STATIC_DIR, "index.html")
-    if os.path.isfile(index_path):
-        return FileResponse(index_path)
+    for p in [os.path.join(d, "index.html") for d in STATIC_DIR_CANDIDATES]:
+        if os.path.isfile(p):
+            return FileResponse(p)
     return JSONResponse({"ok": False, "error": "index.html missing"}, status_code=404)
 
 # =========================
