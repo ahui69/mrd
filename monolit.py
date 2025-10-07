@@ -2294,9 +2294,16 @@ def psy_tick():
 # =========================
 # LLM z zaawansowanym cache
 # =========================
-_LLM_CACHE = {}
+_LLM_CACHE: Dict[str, Tuple[float, str]] = {}
 _LLM_CACHE_HITS = 0
 _LLM_CACHE_MISSES = 0
+_LLM_CACHE_TTL_S = int(os.getenv("LLM_CACHE_TTL_S", "120"))
+
+_LLM_CONCURRENCY = int(os.getenv("LLM_CONCURRENCY", "4"))
+try:
+    _LLM_SEM = asyncio.Semaphore(_LLM_CONCURRENCY)
+except Exception:
+    _LLM_SEM = None
 
 import httpx, os, json
 
@@ -2304,19 +2311,56 @@ import httpx, os, json
 LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "zai-org/GLM-4.5-Air")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", str(LLM_TIMEOUT)))
 
-def _llm_request(messages: list[dict], model: str) -> str:
-    """Wysyła żądanie do DeepInfra dla danego modelu."""
+def _llm_cache_key(messages: list[dict], model: str, temperature: float | None, max_tokens: int | None) -> str:
+    safe = [{"role": m.get("role",""), "content": (m.get("content","") or "")[:4000]} for m in messages or []]
+    blob = json.dumps({"m": safe, "model": model, "t": temperature, "n": max_tokens}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()
+
+def _httpx_llm_client() -> httpx.Client:
+    # singleton client for keep-alive
+    global __LLM_CLIENT
+    cli = globals().get("__LLM_CLIENT")
+    if cli and not cli.is_closed:
+        return cli
+    cli = httpx.Client(timeout=LLM_TIMEOUT)
+    globals()["__LLM_CLIENT"] = cli
+    return cli
+
+def _llm_request(messages: list[dict], model: str, temperature: float | None = None, max_tokens: int | None = None, stop: list[str] | None = None) -> str:
+    if not LLM_API_KEY:
+        raise RuntimeError("LLM_API_KEY missing")
     url = f"{LLM_BASE_URL}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
-        "Content-Type": "application/json",
-    }
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
     payload = {"model": model, "messages": messages}
-    with httpx.Client(timeout=LLM_TIMEOUT) as client:
-        r = client.post(url, headers=headers, json=payload)
-        r.raise_for_status()
-        data = r.json()
-        return data["choices"][0]["message"]["content"]
+    if temperature is not None: payload["temperature"] = float(temperature)
+    if max_tokens is not None: payload["max_tokens"] = int(max_tokens)
+    if stop: payload["stop"] = stop
+
+    key = _llm_cache_key(messages, model, temperature, max_tokens)
+    now = time.time()
+    hit = _LLM_CACHE.get(key)
+    if hit and (now - hit[0] <= _LLM_CACHE_TTL_S):
+        global _LLM_CACHE_HITS
+        _LLM_CACHE_HITS += 1
+        return hit[1]
+
+    global _LLM_CACHE_MISSES
+    _LLM_CACHE_MISSES += 1
+
+    client = _httpx_llm_client()
+    last_err = None
+    for attempt in range(3):
+        try:
+            r = client.post(url, headers=headers, json=payload)
+            r.raise_for_status()
+            data = r.json()
+            text = data["choices"][0]["message"]["content"]
+            _LLM_CACHE[key] = (now, text)
+            return text
+        except Exception as e:
+            last_err = e
+            time.sleep(0.25 * (2 ** attempt))
+    raise last_err or RuntimeError("LLM request failed")
 
 def call_llm(messages: list[dict], **opts) -> str:
     """
@@ -2325,16 +2369,45 @@ def call_llm(messages: list[dict], **opts) -> str:
     2️⃣ Jeśli się wywali → próba na fallbacku
     """
     try:
-        return _llm_request(messages, LLM_MODEL)
+        return _llm_request(messages, opts.get("model") or LLM_MODEL, opts.get("temperature"), opts.get("max_tokens"), opts.get("stop"))
     except Exception as e1:
         print(f"[LLM] Główny model padł: {e1} — próbuję fallback {LLM_FALLBACK_MODEL}")
         try:
-            return _llm_request(messages, LLM_FALLBACK_MODEL)
+            return _llm_request(messages, LLM_FALLBACK_MODEL, opts.get("temperature"), opts.get("max_tokens"), opts.get("stop"))
         except Exception as e2:
             print(f"[LLM] Fallback też padł: {e2}")
             return f"[LLM-FAIL] {str(e2)}"
 def call_llm_once(prompt: str, temperature: float=0.8)->str:
-    return call_llm([{"role":"user","content":prompt}], temperature, max_tokens=None)
+    return call_llm([{"role":"user","content":prompt}], temperature=temperature, max_tokens=None)
+
+def call_llm_stream(messages: list[dict], model: str | None = None, temperature: float | None = None, max_tokens: int | None = None):
+    """
+    Generator strumieniujący odpowiedź LLM (delta tekstu), korzysta z OpenAI-compatible stream=true.
+    """
+    if not LLM_API_KEY:
+        # fallback: brak streamu – zwróć całość jako jeden kawałek
+        yield call_llm(messages, model=model or LLM_MODEL, temperature=temperature, max_tokens=max_tokens)
+        return
+    url = f"{LLM_BASE_URL}/chat/completions"
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": model or LLM_MODEL, "messages": messages, "stream": True}
+    if temperature is not None: payload["temperature"] = float(temperature)
+    if max_tokens is not None: payload["max_tokens"] = int(max_tokens)
+    with httpx.stream("POST", url, headers=headers, json=payload, timeout=LLM_TIMEOUT) as r:
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if not line: continue
+            if line.startswith("data: "):
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(data)
+                    delta = (((obj.get("choices") or [{}])[0]).get("delta") or {}).get("content")
+                    if delta:
+                        yield delta
+                except Exception:
+                    continue
 
 # =========================
 # Pisanie – BOOST + Aukcje PRO
