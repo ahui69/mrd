@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
 import typing as T, os, time
 import monolit as M
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 import asyncio
 from pydantic import BaseModel
 import monolit as M
@@ -190,6 +190,25 @@ def travel_plan(body: TravelPlanBody, _=Depends(_auth)):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+@router.get("/travel/map/static")
+def travel_map_static(origin: str, destination: str, size: str = "600x400", _=Depends(_auth)):
+    key = os.getenv("MAPS_STATIC_API") or os.getenv("GOOGLE_MAPS_KEY")
+    if not key:
+        raise HTTPException(400, "MAPS_STATIC_API/GOOGLE_MAPS_KEY missing")
+    import httpx
+    url = (
+        "https://maps.googleapis.com/maps/api/staticmap?" +
+        f"size={size}&markers=color:green|{origin}&markers=color:red|{destination}" +
+        f"&key={key}"
+    )
+    try:
+        with httpx.Client(timeout=20.0) as c:
+            r = c.get(url)
+            r.raise_for_status()
+            return Response(content=r.content, media_type="image/png")
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 # --- SYSTEM ---
 @router.get("/system/stats")
 def system_stats(_=Depends(_auth)):
@@ -329,6 +348,10 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
                 M.stm_add("user", last_user)
             if hasattr(M, "stm_add") and answer:
                 M.stm_add("assistant", answer)
+            # zapis całości do LTM (realna pamięć konwersacji)
+            if hasattr(M, "ltm_add"):
+                snippet = (last_user or "")[:400] + "\n\n" + (answer or "")[:1200]
+                M.ltm_add(f"[conv] {snippet}", tags="chat,conv", conf=0.7)
         except:
             pass
 
