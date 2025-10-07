@@ -210,6 +210,37 @@ def travel_map_static(origin: str, destination: str, size: str = "600x400", _=De
     except Exception as e:
         raise HTTPException(500, str(e))
 
+@router.get("/travel/geocode")
+def travel_geocode(q: str, _=Depends(_auth)):
+    import httpx
+    q = (q or "").strip()
+    if not q:
+        return {"ok": True, "items": []}
+    # Prefer MapTiler if key present
+    key = os.getenv("MAPTILER_KEY", "") or os.getenv("GOOGLE_MAPS_KEY", "")
+    try:
+        if os.getenv("MAPTILER_KEY"):
+            url = f"https://api.maptiler.com/geocoding/{q}.json?key={os.getenv('MAPTILER_KEY')}"
+            with httpx.Client(timeout=15.0) as c:
+                r = c.get(url)
+                r.raise_for_status(); j = r.json() or {}
+                items = []
+                for f in (j.get("features") or [])[:5]:
+                    center = f.get("center") or []
+                    if len(center)==2:
+                        items.append({"name": f.get("place_name") or f.get("text") or q, "lon": center[0], "lat": center[1]})
+                return {"ok": True, "items": items}
+        # Fallback: Nominatim
+        url = "https://nominatim.openstreetmap.org/search"
+        params = {"format": "json", "q": q, "limit": 5}
+        with httpx.Client(timeout=15.0, headers={"User-Agent": "MordzixBot/1.0"}) as c:
+            r = c.get(url, params=params)
+            r.raise_for_status(); j = r.json() or []
+            items = [{"name": it.get("display_name",""), "lat": float(it.get("lat",0)), "lon": float(it.get("lon",0))} for it in j[:5]]
+            return {"ok": True, "items": items}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 # --- SYSTEM ---
 @router.get("/system/stats")
 def system_stats(_=Depends(_auth)):

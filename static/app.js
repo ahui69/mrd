@@ -305,9 +305,15 @@ document.getElementById('mapBtn').addEventListener('click', async ()=>{
     const key = (((pkg||{}).package||{}).maptiler_key)||'';
     const tileUrl = key ? `https://api.maptiler.com/maps/streets/256/{z}/{x}/{y}.png?key=${key}` : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
     L.tileLayer(tileUrl, {maxZoom: 19}).addTo(map);
-    // Markery (bez geokodowania: placeholder w (0,0))
-    L.marker([0,0]).addTo(map).bindPopup(o);
-    L.marker([0,0]).addTo(map).bindPopup(d);
+    // Geokodowanie origin/destination
+    const go = await fetch(`${BASE}/api/travel/geocode?q=${encodeURIComponent(o)}`, {headers:{'Authorization':`Bearer ${AUTH_TOKEN}`}}).then(r=>r.json());
+    const gd = await fetch(`${BASE}/api/travel/geocode?q=${encodeURIComponent(d)}`, {headers:{'Authorization':`Bearer ${AUTH_TOKEN}`}}).then(r=>r.json());
+    const p1 = (go.items&&go.items[0]) ? [go.items[0].lat, go.items[0].lon] : [0,0];
+    const p2 = (gd.items&&gd.items[0]) ? [gd.items[0].lat, gd.items[0].lon] : [0,0];
+    L.marker(p1).addTo(map).bindPopup(o);
+    L.marker(p2).addTo(map).bindPopup(d);
+    const group = new L.featureGroup([L.marker(p1), L.marker(p2)]);
+    map.fitBounds(group.getBounds().pad(0.3));
   }catch(e){ addMsg('assistant','Błąd mapy: '+e.message); }
 });
 
