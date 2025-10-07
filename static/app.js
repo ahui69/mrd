@@ -19,6 +19,7 @@ const els = {
 let currentChatId = null;
 let chats = loadChats();
 let pendingFiles = []; // files selected but not sent yet
+let lastActiveTs = Date.now();
 
 function loadChats(){
   try { return JSON.parse(localStorage.getItem('CHATS')||'[]'); } catch(e){ return []; }
@@ -190,6 +191,7 @@ els.composer.addEventListener('submit', async (e)=>{
   e.preventDefault();
   const txt = els.input.value.trim();
   if(!txt && pendingFiles.length===0) return;
+  lastActiveTs = Date.now();
   if(!currentChatId) createChat();
   const chat = getChat();
 
@@ -233,5 +235,13 @@ els.mic.addEventListener('click', ()=>{
 (function init(){
   // Always load current package (ping backend and prepare empty chat)
   renderHistory();
-  createChat();
+  // Session restore: jeśli ostatnia aktywność > 60 minut, zacznij świeżo
+  const last = Number(localStorage.getItem('LAST_ACTIVE_TS')||'0');
+  if(!chats.length || (Date.now()-last) > 60*60*1000){
+    chats = []; saveChats(); createChat();
+  } else {
+    currentChatId = (chats[0] && chats[0].id) || null;
+    if(!currentChatId) createChat(); else renderChat();
+  }
+  setInterval(()=>localStorage.setItem('LAST_ACTIVE_TS', String(lastActiveTs)), 5000);
 })();

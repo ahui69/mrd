@@ -40,6 +40,15 @@ class AssistantBody(BaseModel):
     save_memory: bool = True
     topk: int = 8
 
+class TravelPlanBody(BaseModel):
+    city: str
+    days: int = 3
+    preferences: T.Optional[str] = ""
+
+class TravelRouteBody(BaseModel):
+    origin: str
+    destination: str
+
 # --- HEALTH ---
 @router.get("/health")
 def health():
@@ -153,6 +162,33 @@ def sports_scores(league: str = "nba", _=Depends(_auth)):
     if not hasattr(M, "sports_scores"):
         raise HTTPException(500, "sports_scores() not available")
     return {"ok": True, **M.sports_scores(league)}
+
+# --- TRAVEL ---
+@router.get("/travel/route")
+def travel_route(origin: str, destination: str, _=Depends(_auth)):
+    try:
+        # Wersja MVP: deleguj do travel_search/serp_maps jeśli dostępne
+        if hasattr(M, 'serp_maps'):
+            items = asyncio.run(M.serp_maps(f"{origin} to {destination}", 10))
+            return {"ok": True, "items": items}
+        return {"ok": False, "error":"serp_maps not available"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@router.post("/travel/plan")
+def travel_plan(body: TravelPlanBody, _=Depends(_auth)):
+    """Plan podróży – MVP: wykorzystuje autonaukę i LLM do ułożenia harmonogramu.
+    Wymaga dostępu sieci do sprawdzania godzin i miejsc (SERPAPI/FIRECRAWL)."""
+    try:
+        city = (body.city or "").strip()
+        days = max(1, int(body.days or 3))
+        prefs = (body.preferences or "").strip()
+        # prompt ułożenia planu
+        prompt = f"Przygotuj szczegółowy plan {days}-dniowej wycieczki po mieście {city}. Uwzględnij: godziny otwarcia atrakcji, czas trwania zwiedzania, posiłki (lokalne miejsca), dojazdy między punktami, realne linki do biletów, hotele i loty (przykładowe). Preferencje: {prefs or 'standard'}. Zwróć plan w układzie dzień po dniu z godzinami."
+        text = M.call_llm([{"role":"system","content":"Planista podróży. Dawaj konkrety i linki."},{"role":"user","content":prompt}], temperature=0.3)
+        return {"ok": True, "city": city, "days": days, "plan": text}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 # --- SYSTEM ---
 @router.get("/system/stats")
@@ -303,6 +339,10 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
         "sources": research_sources,
         "news": news_items,
         "sports": sports if sports else None,
+        "memory": {
+            "stm": (stm_ctx[:1000] if stm_ctx else ""),
+            "ltm": (ltm_ctx[:1000] if 'ltm_ctx' in locals() and ltm_ctx else "")
+        }
     }
 
 # --- ASSISTANT STREAM (SSE) ---
