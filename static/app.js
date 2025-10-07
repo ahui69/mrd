@@ -90,13 +90,59 @@ function toAssistantPayload(){
 
 async function callAssistant(){
   const payload = toAssistantPayload();
-  const res = await fetch(`${BASE}/api/assistant/chat`,{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':`Bearer ${AUTH_TOKEN}`},
-    body: JSON.stringify(payload)
-  });
-  if(!res.ok){ throw new Error(await res.text()); }
-  return await res.json();
+  // Try streaming first
+  try{
+    const res = await fetch(`${BASE}/api/assistant/stream`,{
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${AUTH_TOKEN}`},
+      body: JSON.stringify(payload)
+    });
+    if(!res.ok) throw new Error(await res.text());
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let acc = '';
+    let full = '';
+    setTyping(true);
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      acc += dec.decode(value, {stream:true});
+      const chunks = acc.split("\n\n");
+      acc = chunks.pop();
+      for(const ch of chunks){
+        if(!ch.startsWith('data:')) continue;
+        const json = ch.slice(5).trim();
+        if(!json) continue;
+        try{
+          const obj = JSON.parse(json);
+          if(obj.delta){
+            full += obj.delta;
+            appendOrUpdateAssistant(full);
+          }
+        }catch{}
+      }
+    }
+    setTyping(false);
+    return {ok:true, answer: full};
+  }catch(err){
+    const res = await fetch(`${BASE}/api/assistant/chat`,{
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${AUTH_TOKEN}`},
+      body: JSON.stringify(payload)
+    });
+    if(!res.ok){ throw new Error(await res.text()); }
+    return await res.json();
+  }
+}
+
+function appendOrUpdateAssistant(text){
+  const nodes = [...els.chat.querySelectorAll('.msg.assistant')];
+  let div = nodes[nodes.length-1];
+  if(!div){
+    div = document.createElement('div');
+    div.className = 'msg assistant';
+    els.chat.appendChild(div);
+  }
+  div.textContent = text;
+  els.chat.scrollTop = els.chat.scrollHeight;
 }
 
 async function uploadFiles(files){
