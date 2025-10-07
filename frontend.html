@@ -6,6 +6,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>AI Assistant</title>
+    <!-- Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -25,6 +27,19 @@
             --border: #D1D1D6;
             --sidebar-bg: #FFFFFF;
             --sidebar-width: 280px;
+        }
+
+        /* DARK MODE */
+        [data-theme="dark"] {
+            --primary: #0A84FF;
+            --bg-main: #000000;
+            --bg-chat: #1C1C1E;
+            --bg-user: #0A84FF;
+            --bg-assistant: #3A3A3C;
+            --text-user: #FFFFFF;
+            --text-assistant: #FFFFFF;
+            --border: #38383A;
+            --sidebar-bg: #1C1C1E;
         }
 
         body {
@@ -114,6 +129,9 @@
             border-radius: 8px;
             cursor: pointer;
             transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .conversation-item:active {
@@ -640,6 +658,13 @@
             </div>
 
             <div class="settings-item">
+                <div class="settings-toggle">
+                    <span>🌙 Dark Mode</span>
+                    <div class="toggle-switch" id="themeToggle" onclick="toggleTheme()"></div>
+                </div>
+            </div>
+
+            <div class="settings-item">
                 <label>Rate Limit Status</label>
                 <div id="rateLimitStatus" style="font-size: 12px; padding: 8px; background: var(--bg-main); border-radius: 6px;">
                     Ładowanie...
@@ -1079,6 +1104,49 @@
             if (!useStreaming) document.getElementById('streamingToggle').classList.remove('active');
             if (!useMemory) document.getElementById('memoryToggle').classList.remove('active');
             if (useResearch) document.getElementById('researchToggle').classList.add('active');
+            
+            // Load theme
+            const theme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+            if (theme === 'dark') {
+                document.getElementById('themeToggle')?.classList.add('active');
+            }
+        }
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            document.getElementById('themeToggle').classList.toggle('active');
+        }
+
+        function exportConversation(convId) {
+            const conversations = getConversations();
+            const conv = conversations.find(c => c.id === convId);
+            if (!conv) {
+                alert('❌ Nie znaleziono rozmowy');
+                return;
+            }
+            
+            const json = JSON.stringify(conv, null, 2);
+            const blob = new Blob([json], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `chat_${conv.title.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            console.log('[EXPORT] Conversation exported:', convId);
+        }
+
+        function exportCurrentConversation() {
+            if (currentConversationId) {
+                exportConversation(currentConversationId);
+            } else {
+                alert('❌ Brak aktywnej rozmowy');
+            }
         }
 
         async function updateStats() {
@@ -1156,9 +1224,21 @@
                 metadataHTML += '</div>';
             }
 
+            // Render markdown if available, otherwise plain text
+            let contentHTML = message.content;
+            if (typeof marked !== 'undefined') {
+                try {
+                    contentHTML = marked.parse(message.content);
+                } catch (e) {
+                    contentHTML = message.content.replace(/\n/g, '<br>');
+                }
+            } else {
+                contentHTML = message.content.replace(/\n/g, '<br>');
+            }
+
             messageEl.innerHTML = `
                 <div class="message-bubble">
-                    ${message.content.replace(/\n/g, '<br>')}
+                    ${contentHTML}
                     ${attachmentsHTML}
                     ${sourcesHTML}
                     ${metadataHTML}
@@ -1278,9 +1358,14 @@
                 const date = new Date(conv.updated).toLocaleDateString('pl-PL');
                 const isActive = conv.id === currentConversationId;
                 return `
-                    <div class="conversation-item ${isActive ? 'active' : ''}" onclick="loadConversation('${conv.id}')">
-                        <div class="conversation-title">${conv.title}</div>
-                        <div class="conversation-date">${date} | ${conv.messages.length} wiad.</div>
+                    <div class="conversation-item ${isActive ? 'active' : ''}">
+                        <div onclick="loadConversation('${conv.id}')" style="flex: 1;">
+                            <div class="conversation-title">${conv.title}</div>
+                            <div class="conversation-date">${date} | ${conv.messages.length} wiad.</div>
+                        </div>
+                        <button onclick="exportConversation('${conv.id}'); event.stopPropagation();" 
+                                style="background: none; border: none; cursor: pointer; font-size: 16px; padding: 5px;"
+                                title="Eksportuj rozmowę">💾</button>
                     </div>
                 `;
             }).join('');
