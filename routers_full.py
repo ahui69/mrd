@@ -346,6 +346,11 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
     # 6) LLM odpowiedź
     out = M.call_llm(llm_messages)
     answer = out.get("text") if isinstance(out, dict) else out
+    if getattr(M, 'SHARP_MODE', False):
+        try:
+            answer = M._anti_water(M._anti_repeat(answer))
+        except Exception:
+            pass
 
     # 7) Memory update
     if body.save_memory:

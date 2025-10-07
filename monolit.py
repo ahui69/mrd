@@ -89,9 +89,14 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL    = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
 LLM_TIMEOUT  = int(os.getenv("LLM_HTTP_TIMEOUT_S", "60"))
+SHARP_MODE   = os.getenv("SHARP_MODE", "1") == "1"
 
 EMBED_URL   = os.getenv("LLM_EMBED_URL","https://api.deepinfra.com/v1/openai/embeddings")
 EMBED_MODEL = os.getenv("LLM_EMBED_MODEL","sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
+
+# Opcjonalny RERANKER (DeepInfra)
+RERANK_URL = os.getenv("LLM_RERANK_URL", "")
+RERANK_KEY = os.getenv("LLM_RERANK_KEY", "")
 
 SERPAPI_KEY   = os.getenv("SERPAPI_KEY", "")
 FIRECRAWL_KEY = os.getenv("FIRECRAWL_KEY", "")
@@ -2498,6 +2503,29 @@ def _anti_repeat(s: str)->str:
         if key in seen: continue
         seen.add(key); out.append(ln)
     return "\n".join(out)
+
+def _anti_water(s: str)->str:
+    """Usuwa wodę: puste wtręty, zbyt ogólne zdania, tautologie, wydłużone frazy."""
+    if not s: return s
+    # Usuń duplikaty spacji i dekoracje
+    t=_normalize_ws(s)
+    # Wytnij typowe wypełniacze
+    fillers=(
+        r"(?i)w dzisiejszych czasach|warto zaznaczyć|należy pamiętać|jak wiadomo|generalnie|na koniec|podsumowując",
+    )
+    for pat in fillers:
+        t=re.sub(pat, "", t)
+    # Skróć akapity > 1200 znaków (bez utraty sensu)
+    paras=[p.strip() for p in t.split("\n\n") if p.strip()]
+    cleaned=[]
+    for p in paras:
+        if len(p)>1400:
+            p=p[:1200].rsplit(".",1)[0]+"."
+        cleaned.append(p)
+    t="\n\n".join(cleaned)
+    # Zbij powtórzenia linii
+    t=_anti_repeat(t)
+    return t
 
 def _bounded_length(s: str, target: str)->str:
     caps={"krótki":800,"średni":1600,"długi":3000,"bardzo długi":6000}
