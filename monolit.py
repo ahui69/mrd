@@ -26,7 +26,7 @@ except ImportError:
 
 # FastAPI
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -183,7 +183,43 @@ def index_page():
     for p in [os.path.join(d, "index.html") for d in STATIC_DIR_CANDIDATES]:
         if os.path.isfile(p):
             return FileResponse(p)
-    return JSONResponse({"ok": False, "error": "index.html missing"}, status_code=404)
+    # Fallback: wbudowany minimalny frontend czatu (bez zależności)
+    html = """
+<!doctype html>
+<html lang=pl><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>Mordzix</title>
+<style>
+body{margin:0;background:#0b0b0f;color:#f6f090;font:16px/1.45 -apple-system,Segoe UI,Inter,Roboto,sans-serif}
+#app{display:flex;flex-direction:column;height:100dvh}
+#chat{flex:1;overflow:auto;padding:16px}
+.msg{max-width:70ch;margin:8px 0;padding:10px 12px;border-radius:12px;border:1px solid #2a2a34;background:#14141d;white-space:pre-wrap}
+.user{margin-left:auto;background:#1d1d28}
+#bar{display:flex;gap:8px;padding:12px;border-top:1px solid #2a2a34;background:#0f0f15}
+#bar input{flex:1;padding:10px;border:1px solid #2a2a34;border-radius:10px;background:#14141d;color:#f6f090}
+#bar button{padding:10px 14px;border-radius:10px;border:1px solid #ffd84a;background:#ffd84a;color:#000;cursor:pointer}
+</style></head>
+<body><div id=app>
+<div id=chat></div>
+<form id=bar><input id=msg placeholder="Napisz..." autocomplete=off><button type=submit>Wyślij</button></form>
+</div>
+<script>
+const chat=document.getElementById('chat');
+const msg=document.getElementById('msg');
+const form=document.getElementById('bar');
+const BASE=location.origin;let AUTH=localStorage.getItem('AUTH_TOKEN')||'';
+if(!AUTH){AUTH=prompt('AUTH_TOKEN?')||'';localStorage.setItem('AUTH_TOKEN',AUTH)}
+function add(role,content){const d=document.createElement('div');d.className='msg '+role;d.textContent=content;chat.appendChild(d);chat.scrollTop=chat.scrollHeight}
+form.addEventListener('submit',async(e)=>{e.preventDefault();const t=msg.value.trim();if(!t)return;add('user',t);msg.value='';
+  try{
+    const p={user:'user',messages:[{role:'user',content:t}]};
+    const r=await fetch(BASE+'/api/assistant/chat',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+AUTH},body:JSON.stringify(p)});
+    const j=await r.json(); add('assistant', j.answer||JSON.stringify(j));
+  }catch(err){add('assistant','Błąd: '+err.message)}
+});
+</script></body></html>
+"""
+    return HTMLResponse(content=html, status_code=200)
 
 # =========================
 # RATE LIMIT
