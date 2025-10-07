@@ -89,22 +89,6 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL    = os.getenv("LLM_MODEL", "zai-org/GLM-4.5")
 LLM_TIMEOUT  = int(os.getenv("LLM_HTTP_TIMEOUT_S", "60"))
-# Static and uploads serving (po zdefiniowaniu BASE_DIR/UPLOADS_DIR)
-try:
-    STATIC_DIR = os.path.join(BASE_DIR, "static")
-    os.makedirs(STATIC_DIR, exist_ok=True)
-    os.makedirs(UPLOADS_DIR, exist_ok=True)
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
-except Exception as _e:
-    print(f"[WARN] static mount failed: {_e}")
-
-@app.get("/")
-def index_page():
-    index_path = os.path.join(STATIC_DIR, "index.html")
-    if os.path.isfile(index_path):
-        return FileResponse(index_path)
-    return JSONResponse({"ok": False, "error": "index.html missing"}, status_code=404)
 
 EMBED_URL   = os.getenv("LLM_EMBED_URL","https://api.deepinfra.com/v1/openai/embeddings")
 EMBED_MODEL = os.getenv("LLM_EMBED_MODEL","sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
@@ -131,6 +115,22 @@ HEADERS   = {"User-Agent": WEB_USER_AGENT}
 JSON_HEAD = {"User-Agent": WEB_USER_AGENT, "Accept":"application/json", "Content-Type":"application/json"}
 
 _START_TIME = time.time()  # Czas startu aplikacji
+
+# Static and uploads serving (po zdefiniowaniu katalogów)
+try:
+    STATIC_DIR = os.path.join(BASE_DIR, "static")
+    os.makedirs(STATIC_DIR, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+except Exception as _e:
+    print(f"[WARN] static mount failed: {_e}")
+
+@app.get("/")
+def index_page():
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
+    return JSONResponse({"ok": False, "error": "index.html missing"}, status_code=404)
 
 # =========================
 # RATE LIMIT

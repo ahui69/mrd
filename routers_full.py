@@ -4,6 +4,9 @@ from __future__ import annotations
 import os, time, typing as T
 from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
+import typing as T, os, time
+import monolit as M
+from pydantic import BaseModel
 import monolit as M
 
 router = APIRouter(prefix="/api")
@@ -292,6 +295,8 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
     }
 
 # --- FILES ---
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES","20000000"))  # 20MB
+
 @router.post("/files/upload")
 async def files_upload(files: T.List[UploadFile] = File(...), _=Depends(_auth)):
     saved = []
@@ -300,8 +305,11 @@ async def files_upload(files: T.List[UploadFile] = File(...), _=Depends(_auth)):
         try:
             name = (f.filename or "file").replace("..",".").replace("/","_")
             path = os.path.join(M.UPLOADS_DIR, name)
+            buf = await f.read()
+            if len(buf) > MAX_UPLOAD_BYTES:
+                raise ValueError("file_too_large")
             with open(path, "wb") as out:
-                out.write(await f.read())
+                out.write(buf)
             saved.append({
                 "name": name,
                 "size": os.path.getsize(path),
