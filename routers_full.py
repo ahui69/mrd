@@ -6,6 +6,8 @@ from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
 import typing as T, os, time
 import monolit as M
+from fastapi.responses import StreamingResponse
+import asyncio
 from pydantic import BaseModel
 import monolit as M
 
@@ -214,11 +216,11 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
     intent = "chat"
     if last_user:
         lu = last_user.lower()
-        if body.allow_news and any(w in lu for w in ("news", "wiadomości", "aktualności", "co nowego")):
+        if body.allow_news and any(w in lu for w in ("news", "wiadomości", "aktualności", "co nowego", "newsy", "prasówka", "gazeta")):
             intent = "news"
-        elif body.allow_sports and any(w in lu for w in ("wyniki", "mecz", "mecze", "liga", "score")):
+        elif body.allow_sports and any(w in lu for w in ("wyniki", "mecz", "mecze", "liga", "score", "tabela", "terminarz", "skład")):
             intent = "sports"
-        elif body.allow_research and any(w in lu for w in ("wyszukaj", "źródła", "research", "źródło", "źrodła")):
+        elif body.allow_research and any(w in lu for w in ("wyszukaj", "źródła", "research", "źródło", "źrodła", "zrób research", "poszukaj", "znajdź artykuły")):
             intent = "research"
 
     # 4) Narzędzia wg intencji
@@ -294,8 +296,34 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
         "sports": sports if sports else None,
     }
 
+# --- ASSISTANT STREAM (SSE) ---
+@router.post("/assistant/stream")
+async def assistant_stream(body: AssistantBody, _=Depends(_auth)):
+    async def _gen():
+        # Wykorzystaj istniejącą logikę do zbudowania kontekstu i odpowiedzi
+        # Zwracamy strumień SSE z polami: event:data
+        try:
+            # Reużyj assistant_chat, ale strumieniuj wynik po zdaniach
+            res = await assistant_chat(body, _)
+            text = (res.get("answer") or "")
+            # start event
+            yield f"data: {os.linesep}" + "{\"ok\":true,\"intent\":\"" + (res.get("intent") or "chat") + "\"}" + "\n\n"
+            # delta events
+            parts = [p.strip()+" " for p in text.split(".") if p.strip()]
+            for p in parts:
+                payload = {"delta": p}
+                yield "data: " + str(payload).replace("'","\"") + "\n\n"
+                await asyncio.sleep(0.03)
+            # done
+            yield "data: {\"done\":true}\n\n"
+        except Exception as e:
+            yield "data: {\"error\":\"" + str(e).replace("\n"," ") + "\"}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
 # --- FILES ---
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES","20000000"))  # 20MB
+ALLOWED_EXTS = set((os.getenv("ALLOWED_EXTS","png,jpg,jpeg,webp,gif,mp4,webm,mov,avi,pdf,txt,md,doc,docx,xls,xlsx,csv").lower()).split(","))
 
 @router.post("/files/upload")
 async def files_upload(files: T.List[UploadFile] = File(...), _=Depends(_auth)):
@@ -308,6 +336,9 @@ async def files_upload(files: T.List[UploadFile] = File(...), _=Depends(_auth)):
             buf = await f.read()
             if len(buf) > MAX_UPLOAD_BYTES:
                 raise ValueError("file_too_large")
+            ext = (name.rsplit(".",1)[-1].lower() if "." in name else "")
+            if ALLOWED_EXTS and ext not in ALLOWED_EXTS:
+                raise ValueError("file_ext_not_allowed")
             with open(path, "wb") as out:
                 out.write(buf)
             saved.append({
@@ -318,6 +349,31 @@ async def files_upload(files: T.List[UploadFile] = File(...), _=Depends(_auth)):
         except Exception as e:
             saved.append({"name": f.filename, "error": str(e)})
     return {"ok": True, "files": saved}
+
+# --- SYSTEM PACKAGE ---
+@router.get("/system/package")
+def system_package(_=Depends(_auth)):
+    data = {
+        "base_dir": M.BASE_DIR,
+        "db_path": M.DB_PATH,
+        "uploads_dir": M.UPLOADS_DIR,
+        "llm_model": M.LLM_MODEL,
+        "llm_base_url": M.LLM_BASE_URL,
+        "embed_model": M.EMBED_MODEL,
+        "serpapi": bool(M.SERPAPI_KEY),
+        "firecrawl": bool(M.FIRECRAWL_KEY),
+    }
+    return {"ok": True, "package": data}
+
+@router.post("/system/reload")
+def system_reload(_=Depends(_auth)):
+    try:
+        # re-init db and reload seeds
+        if hasattr(M, "_init_db"): M._init_db()
+        if hasattr(M, "_preload_seed_facts"): M._preload_seed_facts()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 # --- STT (Whisper via OpenAI-compatible API) ---
 @router.post("/stt/transcribe")
