@@ -314,6 +314,12 @@ document.getElementById('mapBtn').addEventListener('click', async ()=>{
     L.marker(p2).addTo(map).bindPopup(d);
     const group = new L.featureGroup([L.marker(p1), L.marker(p2)]);
     map.fitBounds(group.getBounds().pad(0.3));
+    // Polyline trasy
+    const poly = await fetch(`${BASE}/api/travel/route/polyline?origin=${encodeURIComponent(o)}&destination=${encodeURIComponent(d)}`, {headers:{'Authorization':`Bearer ${AUTH_TOKEN}`}}).then(r=>r.json());
+    if(poly.ok && (poly.coordinates||[]).length){
+      const latlngs = poly.coordinates.map(([lon,lat])=>[lat,lon]);
+      L.polyline(latlngs, {color:'#ffd84a'}).addTo(map);
+    }
   }catch(e){ addMsg('assistant','Błąd mapy: '+e.message); }
 });
 

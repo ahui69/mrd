@@ -241,6 +241,35 @@ def travel_geocode(q: str, _=Depends(_auth)):
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+@router.get("/travel/route/polyline")
+def travel_polyline(origin: str, destination: str, _=Depends(_auth)):
+    """Zwraca trasę (polyline) między punktami korzystając z OSRM public API."""
+    import httpx
+    # geocode
+    go = travel_geocode(origin)
+    gd = travel_geocode(destination)
+    if not (go.get("ok") and (go.get("items") or []) and gd.get("ok") and (gd.get("items") or [])):
+        return {"ok": False, "error": "geocode_failed"}
+    p1 = go["items"][0]; p2 = gd["items"][0]
+    lon1, lat1 = float(p1["lon"]), float(p1["lat"])
+    lon2, lat2 = float(p2["lon"]), float(p2["lat"])
+    url = f"https://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=full&geometries=geojson"
+    try:
+        with httpx.Client(timeout=20.0) as c:
+            r = c.get(url)
+            r.raise_for_status(); j = r.json() or {}
+            routes = j.get("routes") or []
+            if not routes:
+                return {"ok": False, "error": "route_not_found"}
+            geom = routes[0].get("geometry") or {}
+            coords = geom.get("coordinates") or []  # [[lon,lat],...]
+            # oblicz bounds
+            lats = [p[1] for p in coords]; lons = [p[0] for p in coords]
+            bounds = [[min(lats or [lat1,lat2]), min(lons or [lon1,lon2])], [max(lats or [lat1,lat2]), max(lons or [lon1,lon2])]]
+            return {"ok": True, "coordinates": coords, "bounds": bounds}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 # --- SYSTEM ---
 @router.get("/system/stats")
 def system_stats(_=Depends(_auth)):
