@@ -26,7 +26,7 @@ except ImportError:
 
 # FastAPI
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -36,6 +36,23 @@ app.add_middleware(
     allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
+
+# =========================
+# RATE LIMIT MIDDLEWARE + BAN LIST
+# =========================
+RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "180"))
+BAN_IPS = set([x.strip() for x in (os.getenv("BAN_IPS", "").split(",")) if x.strip()])
+
+@app.middleware("http")
+async def _rate_and_ban_mw(request: Request, call_next):
+    ip = request.headers.get("x-forwarded-for") or request.client.host or "0.0.0.0"
+    if ip in BAN_IPS:
+        return PlainTextResponse("banned", status_code=403)
+    # klucz per ścieżka
+    key = request.url.path
+    if not _rate_ok(ip, key, limit=RATE_LIMIT_PER_MIN, window=60):
+        return PlainTextResponse("too_many_requests", status_code=429)
+    return await call_next(request)
 
 # Writer Pro (opcjonalnie)
 try:

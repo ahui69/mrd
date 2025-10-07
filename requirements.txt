@@ -9,3 +9,4 @@ aiohttp
 matplotlib
 numpy
 psutil
+python-multipart
