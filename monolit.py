@@ -198,6 +198,37 @@ def _init_db():
     cur.execute("INSERT OR IGNORE INTO psy_state VALUES(1,0.0,0.6,0.6,0.55,0.62,0.55,0.63,0.44,'rzeczowy',?)",(time.time(),))
     c.commit(); c.close()
 
+# =========================
+# STM (Short-Term Memory) – proste API nad tabelą `memory`
+# =========================
+def stm_add(role: str, content: str, user: str = "user") -> str:
+    if not content:
+        return ""
+    mid = str(uuid.uuid4())
+    conn = _db(); cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO memory(id, user, role, content, ts) VALUES(?,?,?,?,?)",
+        (mid, user, role or "user", content, time.time()),
+    )
+    conn.commit(); conn.close()
+    return mid
+
+def stm_get_context(limit: int = 20, user: str = "user") -> List[Dict[str, str]]:
+    conn = _db(); cur = conn.cursor()
+    rows = cur.execute(
+        "SELECT role, content FROM memory WHERE user=? ORDER BY ts DESC LIMIT ?",
+        (user, int(max(1, limit))),
+    ).fetchall()
+    conn.close()
+    # zwróć od najstarszego do najnowszego w obrębie kontekstu
+    out = [{"role": r["role"], "content": r["content"]} for r in reversed(rows or [])]
+    return out
+
+def stm_clear(user: str = "user") -> int:
+    conn = _db(); cur = conn.cursor()
+    cur.execute("DELETE FROM memory WHERE user=?", (user,))
+    conn.commit(); n = cur.rowcount; conn.close(); return int(n or 0)
+
 # Funkcja do automatycznego ładowania danych z seed_facts.jsonl przy starcie
 def _preload_seed_facts():
     print("Sprawdzam seed_facts.jsonl...")
