@@ -17,9 +17,9 @@
         :root {
             --primary: #007AFF;
             --bg-main: #F5F5F7;
-            --bg-chat: #FFFFFF;
+            --bg-chat: #F8F9FA;
             --bg-user: #007AFF;
-            --bg-assistant: #E9E9EB;
+            --bg-assistant: #E5E5EA;
             --text-user: #FFFFFF;
             --text-assistant: #000000;
             --border: #D1D1D6;
@@ -608,9 +608,15 @@
 
         <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
+        <!-- Settings Overlay -->
+        <div class="sidebar-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
+
         <!-- Settings Panel -->
         <div class="settings-panel" id="settingsPanel">
-            <h2>Ustawienia</h2>
+            <div class="sidebar-header">
+                <h2>Ustawienia</h2>
+                <button class="close-sidebar" onclick="toggleSettings()">×</button>
+            </div>
             
             <div class="settings-item">
                 <div class="settings-toggle">
@@ -1042,13 +1048,9 @@
         // Settings functions
         function toggleSettings() {
             const panel = document.getElementById('settingsPanel');
-            const overlay = document.getElementById('sidebarOverlay');
-            panel.classList.toggle('open');
-            if (!panel.classList.contains('open')) {
-                overlay.classList.remove('visible');
-            } else {
-                overlay.classList.add('visible');
-            }
+            const overlay = document.getElementById('settingsOverlay');
+            const isOpen = panel.classList.toggle('open');
+            overlay.classList.toggle('visible', isOpen);
         }
 
         function toggleStreaming() {
@@ -1303,8 +1305,15 @@
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebarOverlay');
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('visible');
+            const settings = document.getElementById('settingsPanel');
+            
+            // Zamknij settings jeśli otwarte
+            if (settings.classList.contains('open')) {
+                toggleSettings();
+            }
+            
+            const isOpen = sidebar.classList.toggle('open');
+            overlay.classList.toggle('visible', isOpen);
         }
 
         function autoResize(textarea) {
@@ -1321,15 +1330,15 @@
 
 
         // ============================================================================
-        // AUTO-SAVE CO 30s
+        // AUTO-SAVE CO 30s (NIE zmienia timestamp!)
         // ============================================================================
         setInterval(() => {
             if (currentConversationId) {
                 const conversations = getConversations();
                 const conv = conversations.find(c => c.id === currentConversationId);
-                if (conv) {
-                    conv.updated = Date.now();
-                    saveConversation(conv);
+                if (conv && conv.messages.length > 0) {
+                    // Zapisz bez zmiany timestamp - timestamp zmienia się tylko przy nowej wiadomości!
+                    localStorage.setItem('conversations', JSON.stringify(getConversations()));
                     console.log('[AUTO-SAVE] Conversation saved at', new Date().toLocaleTimeString());
                 }
             }
