@@ -666,11 +666,64 @@
         <!-- Sidebar -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <h2>Rozmowy</h2>
+                <h2>Menu</h2>
                 <button class="close-sidebar" onclick="toggleSidebar()">×</button>
             </div>
             <button class="new-chat-btn" onclick="newChat()">+ Nowa rozmowa</button>
-            <div class="conversations-list" id="conversationsList"></div>
+            
+            <!-- Konwersacje -->
+            <div style="padding: 15px; border-bottom: 1px solid var(--border);">
+                <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 10px; opacity: 0.7;">💬 KONWERSACJE</h3>
+                <div class="conversations-list" id="conversationsList"></div>
+            </div>
+            
+            <!-- Auto-uczenie -->
+            <div id="autoLearnSection" style="padding: 15px; border-bottom: 1px solid var(--border);">
+                <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 10px; opacity: 0.7;">🎓 UCZENIE</h3>
+                <input type="text" id="autoLearnInput" placeholder="Wpisz hasło..." 
+                       style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; background: var(--bg-main);">
+                <button onclick="autoLearn(document.getElementById('autoLearnInput').value)" 
+                        style="width: 100%; padding: 10px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer;">
+                    🔍 Naucz się
+                </button>
+                <div id="autoLearnResult"></div>
+            </div>
+            
+            <!-- Planer -->
+            <div style="padding: 15px; border-bottom: 1px solid var(--border);">
+                <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 10px; opacity: 0.7;">📅 PLANER</h3>
+                <input type="text" id="plannerInput" placeholder="Dodaj zadanie..." 
+                       style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; background: var(--bg-main);">
+                <button onclick="addPlannerTask()" 
+                        style="width: 100%; padding: 8px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                    ➕ Dodaj
+                </button>
+                <div id="plannerList" style="margin-top: 10px;"></div>
+            </div>
+            
+            <!-- Mapa -->
+            <div style="padding: 15px; border-bottom: 1px solid var(--border);">
+                <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 10px; opacity: 0.7;">🗺️ MAPA</h3>
+                <input type="text" id="mapSearch" placeholder="Szukaj miejsca..." 
+                       style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; background: var(--bg-main);">
+                <button onclick="searchPlace()" 
+                        style="width: 100%; padding: 8px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                    🔍 Szukaj
+                </button>
+                <div id="mapResults" style="margin-top: 10px; font-size: 12px;"></div>
+            </div>
+            
+            <!-- Wiedza -->
+            <div style="padding: 15px;">
+                <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 10px; opacity: 0.7;">📚 WIEDZA</h3>
+                <button onclick="showKnowledgeStats()" 
+                        style="width: 100%; padding: 8px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-bottom: 8px;">
+                    📊 Statystyki
+                </button>
+                <div id="knowledgeStats" style="font-size: 12px; padding: 8px; background: var(--bg-main); border-radius: 6px;">
+                    Kliknij aby zobaczyć
+                </div>
+            </div>
         </div>
 
         <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
@@ -1607,25 +1660,135 @@
             }
         }
 
-        // Add auto-learn UI to sidebar (if not exists)
-        window.addEventListener('load', () => {
-            const sidebar = document.getElementById('sidebar');
-            if (sidebar && !document.getElementById('autoLearnSection')) {
-                const autoLearnHTML = `
-                    <div id="autoLearnSection" style="padding: 15px; border-top: 1px solid var(--border);">
-                        <h3 style="font-size: 16px; margin-bottom: 10px;">🎓 Auto-uczenie</h3>
-                        <input type="text" id="autoLearnInput" placeholder="Wpisz hasło..." 
-                               style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px;">
-                        <button onclick="autoLearn(document.getElementById('autoLearnInput').value)" 
-                                style="width: 100%; padding: 10px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer;">
-                            🔍 Naucz się
-                        </button>
-                        <div id="autoLearnResult"></div>
-                    </div>
-                `;
-                
-                sidebar.innerHTML += autoLearnHTML;
+        // Planner functions
+        function addPlannerTask() {
+            const input = document.getElementById('plannerInput');
+            const task = input.value.trim();
+            if (!task) return;
+            
+            const tasks = JSON.parse(localStorage.getItem('plannerTasks') || '[]');
+            tasks.unshift({
+                id: Date.now(),
+                text: task,
+                done: false,
+                created: Date.now()
+            });
+            localStorage.setItem('plannerTasks', JSON.stringify(tasks));
+            input.value = '';
+            renderPlannerTasks();
+        }
+
+        function togglePlannerTask(id) {
+            const tasks = JSON.parse(localStorage.getItem('plannerTasks') || '[]');
+            const task = tasks.find(t => t.id === id);
+            if (task) {
+                task.done = !task.done;
+                localStorage.setItem('plannerTasks', JSON.stringify(tasks));
+                renderPlannerTasks();
             }
+        }
+
+        function deletePlannerTask(id) {
+            const tasks = JSON.parse(localStorage.getItem('plannerTasks') || '[]');
+            const filtered = tasks.filter(t => t.id !== id);
+            localStorage.setItem('plannerTasks', JSON.stringify(filtered));
+            renderPlannerTasks();
+        }
+
+        function renderPlannerTasks() {
+            const tasks = JSON.parse(localStorage.getItem('plannerTasks') || '[]');
+            const list = document.getElementById('plannerList');
+            if (!list) return;
+            
+            if (tasks.length === 0) {
+                list.innerHTML = '<div style="font-size: 12px; opacity: 0.5; padding: 10px; text-align: center;">Brak zadań</div>';
+                return;
+            }
+            
+            list.innerHTML = tasks.map(task => `
+                <div style="padding: 8px; background: var(--bg-main); border-radius: 6px; margin-bottom: 5px; display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" ${task.done ? 'checked' : ''} 
+                           onchange="togglePlannerTask(${task.id})" 
+                           style="cursor: pointer;">
+                    <span style="flex: 1; font-size: 13px; ${task.done ? 'text-decoration: line-through; opacity: 0.5;' : ''}">${task.text}</span>
+                    <button onclick="deletePlannerTask(${task.id})" 
+                            style="background: none; border: none; cursor: pointer; font-size: 16px; opacity: 0.5;">🗑️</button>
+                </div>
+            `).join('');
+        }
+
+        // Map/Travel functions
+        async function searchPlace() {
+            const input = document.getElementById('mapSearch');
+            const query = input.value.trim();
+            if (!query) return;
+            
+            const resultsDiv = document.getElementById('mapResults');
+            resultsDiv.innerHTML = '<div style="padding: 10px; opacity: 0.7;">🔍 Szukam...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/travel/geocode?q=${encodeURIComponent(query)}`, {
+                    headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.results && data.results.length > 0) {
+                        const place = data.results[0];
+                        resultsDiv.innerHTML = `
+                            <div style="padding: 10px; background: var(--bg-main); border-radius: 6px;">
+                                <strong>${place.name || query}</strong><br>
+                                <span style="font-size: 11px; opacity: 0.7;">
+                                    📍 ${place.lat?.toFixed(4)}, ${place.lon?.toFixed(4)}
+                                </span>
+                            </div>
+                        `;
+                    } else {
+                        resultsDiv.innerHTML = '<div style="padding: 10px; opacity: 0.5;">❌ Nie znaleziono</div>';
+                    }
+                } else {
+                    resultsDiv.innerHTML = '<div style="padding: 10px; opacity: 0.5;">⚠️ Błąd API</div>';
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = '<div style="padding: 10px; opacity: 0.5;">❌ Błąd połączenia</div>';
+            }
+        }
+
+        // Knowledge stats
+        async function showKnowledgeStats() {
+            const statsDiv = document.getElementById('knowledgeStats');
+            statsDiv.innerHTML = '<div style="padding: 10px; opacity: 0.7;">📊 Ładowanie...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/ltm/search?q=*&limit=1`, {
+                    headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const count = data.total || data.items?.length || '?';
+                    statsDiv.innerHTML = `
+                        <div style="padding: 10px;">
+                            <strong>📚 Baza wiedzy</strong><br>
+                            <span style="font-size: 14px; opacity: 0.8;">
+                                ${count} faktów w pamięci
+                            </span><br>
+                            <span style="font-size: 11px; opacity: 0.6;">
+                                RAM cache: aktywny ⚡
+                            </span>
+                        </div>
+                    `;
+                } else {
+                    statsDiv.innerHTML = '<div style="padding: 10px; opacity: 0.5;">⚠️ Błąd API</div>';
+                }
+            } catch (error) {
+                statsDiv.innerHTML = '<div style="padding: 10px; opacity: 0.5;">❌ Błąd połączenia</div>';
+            }
+        }
+
+        // Initialize planner on load
+        window.addEventListener('load', () => {
+            renderPlannerTasks();
         });
 
         // Prevent zoom on iOS
