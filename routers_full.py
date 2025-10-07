@@ -339,7 +339,8 @@ async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
 
     llm_messages: T.List[T.Dict[str,str]] = []
     if sys_parts:
-        llm_messages.append({"role": "system", "content": "\n\n".join(sys_parts)})
+        sysmsg = (getattr(M, 'MORDZIX_SYSTEM_PROMPT', '') or '') + "\n\n" + "\n\n".join(sys_parts)
+        llm_messages.append({"role": "system", "content": sysmsg})
     llm_messages.extend(msgs)
 
     # 6) LLM odpowiedź
