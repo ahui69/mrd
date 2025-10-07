@@ -33,6 +33,9 @@ body{font:16px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Inter,Helve
 .msg.assistant{margin-right:auto;background:#15151f}
 
 #composer{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border);background:#0f0f15}
+#composer .file-queue{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+#composer .file-queue .q-item{display:flex;align-items:center;gap:6px;padding:4px 6px;border:1px dashed var(--border);border-radius:8px;background:#14141d;color:var(--ink)}
+#composer .file-queue .q-item .rm{cursor:pointer;color:var(--primary)}
 #composer input[type="text"]{flex:1;padding:10px 12px;border:1px solid var(--border);border-radius:12px;outline:none;font-size:16px;background:#14141d;color:var(--ink)}
 #composer input[type="text"]:focus{border-color:var(--primary)}
 #composer .file{display:flex;align-items:center;justify-content:center;width:38px;height:38px;border:1px solid var(--border);border-radius:10px;background:#14141d;color:var(--ink);cursor:pointer}

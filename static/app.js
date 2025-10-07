@@ -225,6 +225,20 @@ els.composer.addEventListener('submit', async (e)=>{
 
 els.fileInput.addEventListener('change', (e)=>{
   pendingFiles = [...(e.target.files||[])];
+  const q = document.getElementById('fileQueue');
+  q.innerHTML = '';
+  pendingFiles.forEach((f, idx)=>{
+    const it = document.createElement('div'); it.className='q-item';
+    const name = document.createElement('span'); name.textContent = `${f.name} (${Math.round(f.size/1024)} KB)`;
+    const rm = document.createElement('span'); rm.className='rm'; rm.textContent='✕';
+    rm.onclick = ()=>{ pendingFiles.splice(idx,1); els.fileInput.value=''; const evt = new Event('change'); els.fileInput.dispatchEvent(evt); };
+    if(f.type.startsWith('image/')){
+      const img = document.createElement('img'); img.style.height='28px'; img.style.borderRadius='4px';
+      const reader = new FileReader(); reader.onload = ev=>{ img.src = ev.target.result; }; reader.readAsDataURL(f);
+      it.appendChild(img);
+    }
+    it.append(name, rm); q.appendChild(it);
+  });
 });
 
 els.mic.addEventListener('click', ()=>{
@@ -281,5 +295,18 @@ document.getElementById('mapBtn').addEventListener('click', async ()=>{
     const imgNode = document.createElement('img'); imgNode.src = url; imgNode.style.maxWidth = '100%';
     const holder = document.createElement('div'); holder.className = 'msg assistant'; holder.appendChild(imgNode); els.chat.appendChild(holder);
     els.chat.scrollTop = els.chat.scrollHeight;
+    // Interaktywna mapa: Leaflet + MapTiler/OSM
+    const mapDiv = document.getElementById('leafletMap'); mapDiv.style.display='block';
+    if(window._leafletMap){ window._leafletMap.remove(); }
+    const map = L.map('leafletMap').setView([52.0, 19.0], 5);
+    window._leafletMap = map;
+    const resPkg = await fetch(`${BASE}/api/system/package`, {headers:{'Authorization':`Bearer ${AUTH_TOKEN}`}});
+    const pkg = await resPkg.json();
+    const key = (((pkg||{}).package||{}).maptiler_key)||'';
+    const tileUrl = key ? `https://api.maptiler.com/maps/streets/256/{z}/{x}/{y}.png?key=${key}` : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    L.tileLayer(tileUrl, {maxZoom: 19}).addTo(map);
+    // Markery (bez geokodowania: placeholder w (0,0))
+    L.marker([0,0]).addTo(map).bindPopup(o);
+    L.marker([0,0]).addTo(map).bindPopup(d);
   }catch(e){ addMsg('assistant','Błąd mapy: '+e.message); }
 });
