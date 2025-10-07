@@ -31,6 +31,55 @@
 
         /* DARK MODE */
         [data-theme="dark"] {
+            --bg-main: #1C1C1E;
+            --bg-chat: #000000;
+            --bg-user: #0A84FF;
+            --bg-assistant: #1C1C1E;
+            --text-user: #FFFFFF;
+            --text-assistant: #FFFFFF;
+            --border: #38383A;
+            --sidebar-bg: #1C1C1E;
+        }
+
+        [data-theme="dark"] body {
+            background: #000000;
+            color: #FFFFFF;
+        }
+
+        /* Markdown styling */
+        .message-bubble code {
+            background: rgba(0,0,0,0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 14px;
+        }
+
+        .message-bubble pre {
+            background: rgba(0,0,0,0.1);
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+
+        .message-bubble pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .message-bubble a {
+            color: var(--primary);
+            text-decoration: underline;
+        }
+
+        .message-bubble ul, .message-bubble ol {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+
+        /* DARK MODE */
+        [data-theme="dark"] {
             --primary: #0A84FF;
             --bg-main: #000000;
             --bg-chat: #1C1C1E;
@@ -677,6 +726,17 @@
                     Ładowanie...
                 </div>
             </div>
+
+            <div class="settings-item">
+                <div class="settings-toggle">
+                    <span>🌙 Dark Mode</span>
+                    <div class="toggle-switch" id="themeToggle" onclick="toggleTheme()"></div>
+                </div>
+            </div>
+
+            <button class="new-chat-btn" onclick="exportCurrentConversation()" style="background: #34C759; margin-bottom: 10px;">
+                📥 Eksportuj czat
+            </button>
 
             <button class="new-chat-btn" onclick="clearCache()" style="background: #FF3B30;">
                 🗑️ Wyczyść Cache
