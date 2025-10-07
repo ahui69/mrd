@@ -97,6 +97,7 @@ EMBED_MODEL = os.getenv("LLM_EMBED_MODEL","sentence-transformers/paraphrase-mult
 # Opcjonalny RERANKER (DeepInfra)
 RERANK_URL = os.getenv("LLM_RERANK_URL", "")
 RERANK_KEY = os.getenv("LLM_RERANK_KEY", "")
+RERANK_MODEL = os.getenv("LLM_RERANK_MODEL", "mixedbread-ai/mxbai-rerank-large-v1")
 
 SERPAPI_KEY   = os.getenv("SERPAPI_KEY", "")
 FIRECRAWL_KEY = os.getenv("FIRECRAWL_KEY", "")
@@ -2171,7 +2172,22 @@ def ltm_context_for_prompt(query: str, limit: int = 8) -> str:
     Buduje zwięzły blok kontekstu z LTM do podania jako system prompt.
     Priorytet: najwyższy score, bez powtórzeń, krótkie zdania.
     """
-    items = ltm_search_hybrid(query, limit=limit)
+    items = ltm_search_hybrid(query, limit=max(limit, 12))
+    # Opcjonalny reranker – DeepInfra
+    if RERANK_URL and RERANK_KEY and items:
+        try:
+            import httpx
+            headers={"Authorization": f"Bearer {RERANK_KEY}", "Content-Type":"application/json"}
+            docs=[it.get("text","") for it in items]
+            payload={"model": RERANK_MODEL, "query": query, "documents": docs}
+            with httpx.Client(timeout=15.0) as c:
+                r=c.post(RERANK_URL, headers=headers, json=payload)
+                if r.status_code==200:
+                    j=r.json() or {}
+                    order=[d.get("index",i) for i,d in enumerate(j.get("results",[]))]
+                    items=[items[i] for i in order if i < len(items)]
+        except Exception:
+            pass
     seen = set(); lines = []
     for it in items:
         t = (it.get("text") or "").strip()

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>Asystent AI</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/static/manifest.webmanifest">
 </head>
 <body>
   <div id="app">
@@ -57,5 +58,10 @@
     </main>
   </div>
   <script src="/static/app.js" type="module"></script>
+  <script>
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.register('/static/sw.js').catch(()=>{});
+    }
+  </script>
 </body>
 </html>
