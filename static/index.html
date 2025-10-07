@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <title>Asystent AI</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <button id="toggleSidebar" aria-label="Zwiń/rozwiń">☰</button>
+        <h1>Asystent</h1>
+      </div>
+      <div class="sidebar-actions">
+        <button id="newChat">Nowa rozmowa</button>
+        <button id="reloadPkg">Przeładuj pakiet</button>
+      </div>
+      <div id="historyList" class="history-list" aria-label="Archiwum rozmów"></div>
+      <div class="links">
+        <a href="/api/health" target="_blank">/api/health</a>
+        <a href="/static/" target="_blank">/static/</a>
+        <a href="/uploads/" target="_blank">/uploads/</a>
+      </div>
+    </aside>
+    <main id="main">
+      <div id="chat" class="chat" aria-live="polite" aria-busy="false"></div>
+      <div id="controls" class="controls">
+        <details id="learnBox"><summary>Nauka</summary>
+          <div class="row">
+            <input id="learnInput" type="text" placeholder="Hasło do nauki (research)" />
+            <button id="learnBtn">Ucz</button>
+          </div>
+        </details>
+        <details id="mapBox"><summary>Mapa trasy</summary>
+          <div class="row">
+            <input id="origin" type="text" placeholder="Skąd" />
+            <input id="destination" type="text" placeholder="Dokąd" />
+            <button id="mapBtn">Pokaż</button>
+          </div>
+          <img id="mapImg" alt="Mapa" style="max-width:100%;display:none" />
+          <div id="leafletMap" style="height:320px;display:none;margin-top:8px"></div>
+        </details>
+        <details id="memBox"><summary>Pamięć (STM/LTM)</summary>
+          <div class="row" style="margin-bottom:8px">
+            <button id="memStmBtn">Pokaż STM</button>
+            <input id="memQuery" type="text" placeholder="Szukaj w LTM" />
+            <button id="memSearchBtn">Szukaj LTM</button>
+            <button id="memReindexBtn">Reindex LTM</button>
+            <button id="memSaveLastBtn">Zapisz ostatnią odpowiedź do LTM</button>
+          </div>
+          <div id="memList" class="mem-list"></div>
+        </details>
+      </div>
+      <form id="composer" autocomplete="off">
+        <label class="file">
+          <input id="fileInput" type="file" multiple accept="image/*,video/*,.pdf,.txt,.md,.doc,.docx,.xls,.xlsx,.csv" />
+          📎
+        </label>
+        <div id="fileQueue" class="file-queue"></div>
+        <input id="message" type="text" inputmode="text" placeholder="Napisz wiadomość..." aria-label="Wiadomość" />
+        <button type="button" id="mic" aria-label="Mikrofon">🎤</button>
+        <button type="submit" id="send">Wyślij</button>
+      </form>
+      <div id="typing" class="typing hidden" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+    </main>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="/static/app.js" type="module"></script>
+  <script>
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.register('/static/sw.js').catch(()=>{});
+    }
+  </script>
+</body>
+</html>

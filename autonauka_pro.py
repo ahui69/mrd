@@ -1,4 +1,5 @@
 
+from __future__ import annotations
 import httpx, re, html as _html
 
 def _ddg_search_html(q, limit=10, timeout=12):
@@ -35,7 +36,6 @@ autonauka_pro.py — v2 (sync, PRO)
 Zachowuje sygnaturę: autonauka(query, topk=8, deep_research=False, use_external_module=True)
 """
 
-from __future__ import annotations
 import os, re, html, time, math, hashlib, random
 from typing import Any, Dict, List, Tuple
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode

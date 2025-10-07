@@ -2,7 +2,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 import os, time, typing as T
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File
+from pydantic import BaseModel
+import typing as T, os, time
+import monolit as M
+from fastapi.responses import StreamingResponse, Response
+import asyncio
 from pydantic import BaseModel
 import monolit as M
 
@@ -24,6 +29,26 @@ class ChatBody(BaseModel):
     user: T.Optional[str] = "user"
     messages: T.List[ChatMsg]
     options: T.Dict[str, T.Any] = {}
+
+class AssistantBody(BaseModel):
+    user: T.Optional[str] = "user"
+    messages: T.List[ChatMsg]
+    # preferencje i flage narzędzi
+    allow_research: bool = True
+    allow_news: bool = True
+    allow_sports: bool = True
+    save_memory: bool = True
+    topk: int = 8
+    force_intent: T.Optional[str] = None  # chat|research|news|sports
+
+class TravelPlanBody(BaseModel):
+    city: str
+    days: int = 3
+    preferences: T.Optional[str] = ""
+
+class TravelRouteBody(BaseModel):
+    origin: str
+    destination: str
 
 # --- HEALTH ---
 @router.get("/health")
@@ -111,6 +136,24 @@ def ltm_reindex(_=Depends(_auth)):
         raise HTTPException(500, "ltm_reindex() not available")
     return {"ok": True, **M.ltm_reindex()}
 
+@router.post("/ltm/import")
+def ltm_import(body: T.Dict[str, T.Any], _=Depends(_auth)):
+    items = body.get("items") or []
+    if not isinstance(items, list):
+        raise HTTPException(400, "items must be a list")
+    added = 0
+    for it in items:
+        try:
+            txt = (it.get("text") or "").strip()
+            tags = (it.get("tags") or "").strip()
+            conf = float(it.get("conf", 0.7))
+            if txt:
+                if hasattr(M, "ltm_add"): M.ltm_add(txt, tags=tags, conf=conf)
+                added += 1
+        except Exception:
+            pass
+    return {"ok": True, "added": added}
+
 # --- MEMORY (STM) ---
 @router.post("/memory/add")
 def memory_add(body: T.Dict[str,T.Any], _=Depends(_auth)):
@@ -138,6 +181,112 @@ def sports_scores(league: str = "nba", _=Depends(_auth)):
     if not hasattr(M, "sports_scores"):
         raise HTTPException(500, "sports_scores() not available")
     return {"ok": True, **M.sports_scores(league)}
+
+# --- TRAVEL ---
+@router.get("/travel/route")
+def travel_route(origin: str, destination: str, _=Depends(_auth)):
+    try:
+        # Wersja MVP: deleguj do travel_search/serp_maps jeśli dostępne
+        if hasattr(M, 'serp_maps'):
+            items = asyncio.run(M.serp_maps(f"{origin} to {destination}", 10))
+            return {"ok": True, "items": items}
+        return {"ok": False, "error":"serp_maps not available"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@router.post("/travel/plan")
+def travel_plan(body: TravelPlanBody, _=Depends(_auth)):
+    """Plan podróży – MVP: wykorzystuje autonaukę i LLM do ułożenia harmonogramu.
+    Wymaga dostępu sieci do sprawdzania godzin i miejsc (SERPAPI/FIRECRAWL)."""
+    try:
+        city = (body.city or "").strip()
+        days = max(1, int(body.days or 3))
+        prefs = (body.preferences or "").strip()
+        # prompt ułożenia planu
+        prompt = f"Przygotuj szczegółowy plan {days}-dniowej wycieczki po mieście {city}. Uwzględnij: godziny otwarcia atrakcji, czas trwania zwiedzania, posiłki (lokalne miejsca), dojazdy między punktami, realne linki do biletów, hotele i loty (przykładowe). Preferencje: {prefs or 'standard'}. Zwróć plan w układzie dzień po dniu z godzinami."
+        text = M.call_llm([{"role":"system","content":"Planista podróży. Dawaj konkrety i linki."},{"role":"user","content":prompt}], temperature=0.3)
+        return {"ok": True, "city": city, "days": days, "plan": text}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+@router.get("/travel/map/static")
+def travel_map_static(origin: str, destination: str, size: str = "600x400", _=Depends(_auth)):
+    key = os.getenv("MAPS_STATIC_API") or os.getenv("GOOGLE_MAPS_KEY")
+    if not key:
+        raise HTTPException(400, "MAPS_STATIC_API/GOOGLE_MAPS_KEY missing")
+    import httpx
+    url = (
+        "https://maps.googleapis.com/maps/api/staticmap?" +
+        f"size={size}&markers=color:green|{origin}&markers=color:red|{destination}" +
+        f"&key={key}"
+    )
+    try:
+        with httpx.Client(timeout=20.0) as c:
+            r = c.get(url)
+            r.raise_for_status()
+            return Response(content=r.content, media_type="image/png")
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+@router.get("/travel/geocode")
+def travel_geocode(q: str, _=Depends(_auth)):
+    import httpx
+    q = (q or "").strip()
+    if not q:
+        return {"ok": True, "items": []}
+    # Prefer MapTiler if key present
+    key = os.getenv("MAPTILER_KEY", "") or os.getenv("GOOGLE_MAPS_KEY", "")
+    try:
+        if os.getenv("MAPTILER_KEY"):
+            url = f"https://api.maptiler.com/geocoding/{q}.json?key={os.getenv('MAPTILER_KEY')}"
+            with httpx.Client(timeout=15.0) as c:
+                r = c.get(url)
+                r.raise_for_status(); j = r.json() or {}
+                items = []
+                for f in (j.get("features") or [])[:5]:
+                    center = f.get("center") or []
+                    if len(center)==2:
+                        items.append({"name": f.get("place_name") or f.get("text") or q, "lon": center[0], "lat": center[1]})
+                return {"ok": True, "items": items}
+        # Fallback: Nominatim
+        url = "https://nominatim.openstreetmap.org/search"
+        params = {"format": "json", "q": q, "limit": 5}
+        with httpx.Client(timeout=15.0, headers={"User-Agent": "MordzixBot/1.0"}) as c:
+            r = c.get(url, params=params)
+            r.raise_for_status(); j = r.json() or []
+            items = [{"name": it.get("display_name",""), "lat": float(it.get("lat",0)), "lon": float(it.get("lon",0))} for it in j[:5]]
+            return {"ok": True, "items": items}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@router.get("/travel/route/polyline")
+def travel_polyline(origin: str, destination: str, _=Depends(_auth)):
+    """Zwraca trasę (polyline) między punktami korzystając z OSRM public API."""
+    import httpx
+    # geocode
+    go = travel_geocode(origin)
+    gd = travel_geocode(destination)
+    if not (go.get("ok") and (go.get("items") or []) and gd.get("ok") and (gd.get("items") or [])):
+        return {"ok": False, "error": "geocode_failed"}
+    p1 = go["items"][0]; p2 = gd["items"][0]
+    lon1, lat1 = float(p1["lon"]), float(p1["lat"])
+    lon2, lat2 = float(p2["lon"]), float(p2["lat"])
+    url = f"https://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=full&geometries=geojson"
+    try:
+        with httpx.Client(timeout=20.0) as c:
+            r = c.get(url)
+            r.raise_for_status(); j = r.json() or {}
+            routes = j.get("routes") or []
+            if not routes:
+                return {"ok": False, "error": "route_not_found"}
+            geom = routes[0].get("geometry") or {}
+            coords = geom.get("coordinates") or []  # [[lon,lat],...]
+            # oblicz bounds
+            lats = [p[1] for p in coords]; lons = [p[0] for p in coords]
+            bounds = [[min(lats or [lat1,lat2]), min(lons or [lon1,lon2])], [max(lats or [lat1,lat2]), max(lons or [lon1,lon2])]]
+            return {"ok": True, "coordinates": coords, "bounds": bounds}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 # --- SYSTEM ---
 @router.get("/system/stats")
@@ -176,3 +325,244 @@ def semantic_enhance(body: T.Dict[str,T.Any], _=Depends(_auth)):
     if not hasattr(M, "semantic_enhance_response"):
         raise HTTPException(500, "semantic_enhance_response() not available")
     return {"ok": True, **M.semantic_enhance_response(body.get("answer",""), body.get("context",""))}
+
+# --- ASSISTANT: jeden endpoint do wszystkiego ---
+@router.post("/assistant/chat")
+async def assistant_chat(body: AssistantBody, _=Depends(_auth)):
+    if not hasattr(M, "call_llm"):
+        raise HTTPException(500, "call_llm() not available")
+
+    # 1) wyciągnij ostatnią wiadomość użytkownika
+    msgs = [{"role": m.role, "content": m.content} for m in body.messages]
+    last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "").strip()
+
+    # 2) STM kontekst (krótkoterminowy)
+    stm_ctx = ""
+    if hasattr(M, "stm_get_context"):
+        try:
+            stm = M.stm_get_context(limit=8) or []
+            if stm:
+                stm_ctx = "\n".join([f"{m['role']}: {m['content']}" for m in stm])
+        except:
+            pass
+
+    # 2b) LTM kontekst hybrydowy
+    ltm_ctx = ""
+    try:
+        if last_user and hasattr(M, "ltm_context_for_prompt"):
+            ltm_ctx = M.ltm_context_for_prompt(last_user, limit=8) or ""
+    except:
+        pass
+
+    # 3) Wykrywanie zamiaru (intent)
+    intent = "chat"
+    if last_user:
+        lu = last_user.lower()
+        if body.allow_news and any(w in lu for w in ("news", "wiadomości", "aktualności", "co nowego", "newsy", "prasówka", "gazeta")):
+            intent = "news"
+        elif body.allow_sports and any(w in lu for w in ("wyniki", "mecz", "mecze", "liga", "score", "tabela", "terminarz", "skład")):
+            intent = "sports"
+        elif body.allow_research and any(w in lu for w in ("wyszukaj", "źródła", "research", "źródło", "źrodła", "zrób research", "poszukaj", "znajdź artykuły")):
+            intent = "research"
+
+    # 3b) Wymuszenie zamiaru
+    if (body.force_intent or "").lower() in ("chat","research","news","sports"):
+        intent = body.force_intent.lower()
+
+    # 4) Narzędzia wg intencji
+    research_ctx, research_sources = "", []
+    news_items, sports = [], {}
+
+    if intent == "research" and hasattr(M, "autonauka") and last_user:
+        try:
+            r = await M.autonauka(last_user, topk=max(1, int(body.topk or 8)))
+            research_ctx = (r or {}).get("context", "")
+            research_sources = (r or {}).get("sources", []) or []
+        except:
+            pass
+
+    if intent == "news" and hasattr(M, "duck_news") and last_user:
+        try:
+            n = await M.duck_news(last_user, limit=max(5, min(15, body.topk)))
+            news_items = (n or {}).get("items", [])
+        except:
+            pass
+
+    if intent == "sports" and hasattr(M, "sports_scores"):
+        try:
+            # heurystyka: wyciągnij ligę ze słów kluczowych
+            league = "nba"
+            for key in ("nba","nfl","nhl","mlb","epl","laliga","seriea","bundesliga"):
+                if key in last_user.lower():
+                    league = key
+                    break
+            sports = M.sports_scores(league)
+        except:
+            pass
+
+    # 5) Zbuduj system prompt
+    sys_parts = []
+    if stm_ctx: sys_parts.append("STM:\n" + stm_ctx)
+    if ltm_ctx: sys_parts.append("LTM:\n" + ltm_ctx)
+    if research_ctx: sys_parts.append("RESEARCH:\n" + research_ctx)
+    if news_items:
+        lines = [f"- {it.get('title','')} — {it.get('url','')}" for it in news_items[:body.topk]]
+        sys_parts.append("NEWS:\n" + "\n".join(lines))
+    if sports and sports.get("ok"):
+        lines = []
+        for g in sports.get("games", [])[:body.topk]:
+            lines.append(f"{g['away']['abbr']} {g['away']['score']} : {g['home']['score']} {g['home']['abbr']} — {g['state']}")
+        if lines:
+            sys_parts.append("SPORTS:\n" + "\n".join(lines))
+
+    llm_messages: T.List[T.Dict[str,str]] = []
+    if sys_parts:
+        sysmsg = (getattr(M, 'MORDZIX_SYSTEM_PROMPT', '') or '') + "\n\n" + "\n\n".join(sys_parts)
+        llm_messages.append({"role": "system", "content": sysmsg})
+    llm_messages.extend(msgs)
+
+    # 6) LLM odpowiedź
+    out = M.call_llm(llm_messages)
+    answer = out.get("text") if isinstance(out, dict) else out
+    if getattr(M, 'SHARP_MODE', False):
+        try:
+            answer = M._anti_water(M._anti_repeat(answer))
+        except Exception:
+            pass
+
+    # 7) Memory update
+    if body.save_memory:
+        try:
+            if hasattr(M, "stm_add") and last_user:
+                M.stm_add("user", last_user)
+            if hasattr(M, "stm_add") and answer:
+                M.stm_add("assistant", answer)
+            # zapis całości do LTM (realna pamięć konwersacji)
+            if hasattr(M, "ltm_add"):
+                snippet = (last_user or "")[:400] + "\n\n" + (answer or "")[:1200]
+                M.ltm_add(f"[conv] {snippet}", tags="chat,conv", conf=0.7)
+        except:
+            pass
+
+    return {
+        "ok": True,
+        "answer": answer,
+        "intent": intent,
+        "sources": research_sources,
+        "news": news_items,
+        "sports": sports if sports else None,
+        "memory": {
+            "stm": (stm_ctx[:1000] if stm_ctx else ""),
+            "ltm": (ltm_ctx[:1000] if 'ltm_ctx' in locals() and ltm_ctx else "")
+        }
+    }
+
+# --- ASSISTANT STREAM (SSE) ---
+@router.post("/assistant/stream")
+async def assistant_stream(body: AssistantBody, _=Depends(_auth)):
+    async def _gen():
+        # Wykorzystaj istniejącą logikę do zbudowania kontekstu i odpowiedzi
+        # Zwracamy strumień SSE z polami: event:data
+        try:
+            # Reużyj assistant_chat, ale strumieniuj wynik po zdaniach
+            res = await assistant_chat(body, _)
+            text = (res.get("answer") or "")
+            # start event
+            yield f"data: {os.linesep}" + "{\"ok\":true,\"intent\":\"" + (res.get("intent") or "chat") + "\"}" + "\n\n"
+            # delta events
+            parts = [p.strip()+" " for p in text.split(".") if p.strip()]
+            for p in parts:
+                payload = {"delta": p}
+                yield "data: " + str(payload).replace("'","\"") + "\n\n"
+                await asyncio.sleep(0.03)
+            # done
+            yield "data: {\"done\":true}\n\n"
+        except Exception as e:
+            yield "data: {\"error\":\"" + str(e).replace("\n"," ") + "\"}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+# --- FILES ---
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES","20000000"))  # 20MB
+ALLOWED_EXTS = set((os.getenv("ALLOWED_EXTS","png,jpg,jpeg,webp,gif,mp4,webm,mov,avi,pdf,txt,md,doc,docx,xls,xlsx,csv").lower()).split(","))
+
+@router.post("/files/upload")
+async def files_upload(files: T.List[UploadFile] = File(...), _=Depends(_auth)):
+    saved = []
+    os.makedirs(M.UPLOADS_DIR, exist_ok=True)
+    for f in files or []:
+        try:
+            name = (f.filename or "file").replace("..",".").replace("/","_")
+            path = os.path.join(M.UPLOADS_DIR, name)
+            buf = await f.read()
+            if len(buf) > MAX_UPLOAD_BYTES:
+                raise ValueError("file_too_large")
+            ext = (name.rsplit(".",1)[-1].lower() if "." in name else "")
+            if ALLOWED_EXTS and ext not in ALLOWED_EXTS:
+                raise ValueError("file_ext_not_allowed")
+            with open(path, "wb") as out:
+                out.write(buf)
+            saved.append({
+                "name": name,
+                "size": os.path.getsize(path),
+                "url": f"/uploads/{name}",
+            })
+        except Exception as e:
+            saved.append({"name": f.filename, "error": str(e)})
+    return {"ok": True, "files": saved}
+
+# --- SYSTEM PACKAGE ---
+@router.get("/system/package")
+def system_package(_=Depends(_auth)):
+    data = {
+        "base_dir": M.BASE_DIR,
+        "db_path": M.DB_PATH,
+        "uploads_dir": M.UPLOADS_DIR,
+        "llm_model": M.LLM_MODEL,
+        "llm_base_url": M.LLM_BASE_URL,
+        "embed_model": M.EMBED_MODEL,
+        "serpapi": bool(M.SERPAPI_KEY),
+        "firecrawl": bool(M.FIRECRAWL_KEY),
+    }
+    # public client key for tiles (if present)
+    try:
+        data["maptiler_key"] = os.getenv("MAPTILER_KEY", "")
+    except Exception:
+        pass
+    return {"ok": True, "package": data}
+
+@router.post("/system/reload")
+def system_reload(_=Depends(_auth)):
+    try:
+        # re-init db and reload seeds
+        if hasattr(M, "_init_db"): M._init_db()
+        if hasattr(M, "_preload_seed_facts"): M._preload_seed_facts()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+# --- STT (Whisper via OpenAI-compatible API) ---
+@router.post("/stt/transcribe")
+async def stt_transcribe(audio: UploadFile = File(...), lang: str = "pl", _=Depends(_auth)):
+    import httpx
+    api = (M.LLM_BASE_URL or "").rstrip("/")
+    key = M.LLM_API_KEY or os.getenv("LLM_API_KEY", "")
+    if not api or not key:
+        raise HTTPException(400, "LLM_BASE_URL or LLM_API_KEY missing")
+    url = f"{api}/audio/transcriptions"
+    data = {
+        "model": (None, "whisper-large-v3"),
+        "language": (None, lang),
+        "response_format": (None, "json")
+    }
+    files = {"file": (audio.filename or "audio.webm", await audio.read(), audio.content_type or "audio/webm")}
+    headers = {"Authorization": f"Bearer {key}"}
+    async with httpx.AsyncClient(timeout=60.0) as c:
+        try:
+            r = await c.post(url, headers=headers, data=data, files=files)
+            r.raise_for_status()
+            j = r.json()
+            text = j.get("text") or j.get("result") or ""
+            return {"ok": True, "text": text}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}

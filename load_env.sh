@@ -1,5 +1,5 @@
 #!/bin/bash
-# Skrypt do ładowania zmiennych z pliku .env dla środowiska runpod
+# Skrypt do ładowania zmiennych z pliku .env
 
 echo "[MRD69] Ładuję zmienne środowiskowe z pliku .env..."
 
@@ -9,12 +9,12 @@ if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
     echo "[MRD69] Zmienne środowiskowe załadowane pomyślnie"
     
-    # Ustaw WORKSPACE na runpod
-    export WORKSPACE="/workspace/mrd69"
+    # Ustaw WORKSPACE na katalog repo
+    export WORKSPACE="/workspace"
     export MEM_DB="${WORKSPACE}/mem.db"
     export AUTON_WAL="${WORKSPACE}/data/mem/autonauka.wal"
     
-    echo "[MRD69] Ustawiono ścieżki dla runpod:"
+    echo "[MRD69] Ustawiono ścieżki:"
     echo "WORKSPACE: $WORKSPACE"
     echo "MEM_DB: $MEM_DB"
     echo "AUTON_WAL: $AUTON_WAL"
@@ -24,7 +24,7 @@ else
     exit 1
 fi
 
-# Uruchom polecenie przekazane jako argument
+# Uruchom polecenie przekazane jako argument (opcjonalnie)
 if [ $# -gt 0 ]; then
     echo "[MRD69] Uruchamiam: $@"
     exec "$@"

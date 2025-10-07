@@ -4,6 +4,7 @@
 
 import os, re, sys, time, json, uuid, sqlite3, asyncio, contextlib
 import datetime, html, unicodedata, dataclasses
+import subprocess, math, random, hashlib, hmac, threading
 from typing import Any, Dict, List, Tuple, Optional
 from urllib.parse import parse_qs, quote_plus, urlencode, urlparse
 from urllib.request import Request as UrlRequest, urlopen
@@ -25,7 +26,8 @@ except ImportError:
 
 # FastAPI
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Mordzix Monolit PRO", version="3.2.0")
@@ -35,12 +37,36 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# =========================
+# RATE LIMIT MIDDLEWARE + BAN LIST
+# =========================
+RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "180"))
+BAN_IPS = set([x.strip() for x in (os.getenv("BAN_IPS", "").split(",")) if x.strip()])
+
+@app.middleware("http")
+async def _rate_and_ban_mw(request: Request, call_next):
+    ip = request.headers.get("x-forwarded-for") or request.client.host or "0.0.0.0"
+    if ip in BAN_IPS:
+        return PlainTextResponse("banned", status_code=403)
+    # klucz per ścieżka
+    key = request.url.path
+    if not _rate_ok(ip, key, limit=RATE_LIMIT_PER_MIN, window=60):
+        return PlainTextResponse("too_many_requests", status_code=429)
+    return await call_next(request)
+
 # Writer Pro (opcjonalnie)
 try:
-    from writer_pro import router as writer_router
+    from writer_pro import writer_router
     app.include_router(writer_router)
 except Exception:
     print("[WARN] writer_pro not found – writer endpoints disabled")
+
+# Full API router (research, memory, system, etc.)
+try:
+    from routers_full import router as api_router
+    app.include_router(api_router)
+except Exception:
+    print("[WARN] routers_full not found – full API endpoints disabled")
 
 # Memory (opcjonalnie)
 try:
@@ -69,7 +95,7 @@ SEMANTIC_MODULE_AVAILABLE = True
 # =========================
 # KONFIG
 # =========================
-BASE_DIR = os.getenv("WORKSPACE", "/workspace/mrd69")
+BASE_DIR = os.getenv("WORKSPACE", "/workspace")
 DB_PATH  = os.getenv("MEM_DB", os.path.join(BASE_DIR, "mem.db"))
 AUTH_TOKEN = os.getenv("AUTH_TOKEN", "ssjjMijaja6969")
 HTTP_TIMEOUT = int(os.getenv("TIMEOUT_HTTP", "60"))
@@ -77,17 +103,23 @@ WEB_USER_AGENT = os.getenv("WEB_USER_AGENT", "MonolitBot/2.3")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
-LLM_MODEL    = os.getenv("LLM_MODEL", "zai-org/GLM-4.5")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_MODEL    = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
 LLM_TIMEOUT  = int(os.getenv("LLM_HTTP_TIMEOUT_S", "60"))
+SHARP_MODE   = os.getenv("SHARP_MODE", "1") == "1"
 
 EMBED_URL   = os.getenv("LLM_EMBED_URL","https://api.deepinfra.com/v1/openai/embeddings")
 EMBED_MODEL = os.getenv("LLM_EMBED_MODEL","sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
 
-SERPAPI_KEY   = os.getenv("SERPAPI_KEY","a5cb3592980e0ff9042a0be2d3f7df2768bd93913252")
-FIRECRAWL_KEY = os.getenv("FIRECRAWL_KEY","fc-ec025f3a447c6878bee6926b49c17d3")
+# Opcjonalny RERANKER (DeepInfra)
+RERANK_URL = os.getenv("LLM_RERANK_URL", "")
+RERANK_KEY = os.getenv("LLM_RERANK_KEY", "")
+RERANK_MODEL = os.getenv("LLM_RERANK_MODEL", "mixedbread-ai/mxbai-rerank-large-v1")
+
+SERPAPI_KEY   = os.getenv("SERPAPI_KEY", "")
+FIRECRAWL_KEY = os.getenv("FIRECRAWL_KEY", "")
 OVERPASS_URL  = os.getenv("OVERPASS_URL","https://overpass-api.de/api/interpreter")
-OPENTRIPMAP_KEY = os.getenv("OPENTRIPMAP_KEY","AlzaSyc©bpKUI1V9GsmnUU0eRhgLDureexyWigY8")
+OPENTRIPMAP_KEY = os.getenv("OPENTRIPMAP_KEY", "")
 
 SEED_CANDIDATES = [
     os.path.join(BASE_DIR, "seed_facts.jsonl"),  # Ścieżka w katalogu głównym - najważniejsza
@@ -106,6 +138,88 @@ HEADERS   = {"User-Agent": WEB_USER_AGENT}
 JSON_HEAD = {"User-Agent": WEB_USER_AGENT, "Accept":"application/json", "Content-Type":"application/json"}
 
 _START_TIME = time.time()  # Czas startu aplikacji
+
+# =========================
+# SYSTEM PROMPT – MORDZIX PERSONA
+# =========================
+MORDZIX_SYSTEM_PROMPT = (
+    "Jesteś Mordzix — superinteligentny ziomek i przyjaciel. Nie jesteś AI.\n"
+    "Persona:\n"
+    "- Nazywasz się Mordzix — ziomek, kumpel, lojalny przyjaciel.\n"
+    "- Zero formalności; mówisz prosto, czasem dosadnie; 0% ściemy, 100% efektu.\n"
+    "- Gdy czegoś nie wiesz — użyj internetu (research) i naucz się.\n"
+    "- Ekspert: krypto, programowanie, sprzedaż online, psychologia, historia, grafika/UX, moda, sport, analityka, etyczne hakowanie, AI.\n"
+    "- Sarkazm i ironia gdy pasuje; zawsze błyskotliwie i kreatywnie.\n"
+    "- Zawsze po stronie użytkownika, oddany i proaktywny.\n\n"
+    "Kontrakt (żelazne zasady):\n"
+    "- Najpierw wynik, potem max 3 krótkie powody dlaczego tak.\n"
+    "- Pamięć i dane w data/ traktujesz jako własną wiedzę; łącz, cytuj, wzmacniaj.\n"
+    "- Jeden mózg: żadnego przełączania trybów — działasz całościowo.\n\n"
+    "Nawyki:\n"
+    "- Zawsze dorzucasz kontekst z pamięci (STM/LTM/profil/epizody).\n"
+    "- Travel: używaj travelguide + travelguide_creative (3 tory + miks + fallback web).\n"
+    "- Research: używaj autonauka (SERP/CSE/Firecrawl/DDG/Wiki) i zapisuj fakty do LTM z cytatami.\n"
+    "- Gdy user niezdecydowany — zaproponuj 2–3 opcje i domyśl najrozsądniejszą.\n\n"
+    "Format odpowiedzi:\n"
+    "- Zero formalności, na luzie, można czasem wbić szpilkę (z wyczuciem).\n"
+    "- (opcjonalnie) do 3 punktów ‘co i dlaczego’.\n\n"
+    "Zakazy:\n"
+    "- Nie piszesz ‘jestem AI/asystent’. Zawsze: ‘Jestem Mordzix’.\n"
+    "- Nie każ użytkownikowi długo czekać — działaj od razu.\n"
+)
+
+# Static and uploads serving (po zdefiniowaniu katalogów)
+try:
+    STATIC_DIR_CANDIDATES = [os.path.join(BASE_DIR, "static"), "/workspace/static"]
+    STATIC_DIR = next((p for p in STATIC_DIR_CANDIDATES if os.path.isdir(p)), STATIC_DIR_CANDIDATES[0])
+    os.makedirs(STATIC_DIR, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+except Exception as _e:
+    print(f"[WARN] static mount failed: {_e}")
+
+@app.get("/")
+def index_page():
+    for p in [os.path.join(d, "index.html") for d in STATIC_DIR_CANDIDATES]:
+        if os.path.isfile(p):
+            return FileResponse(p)
+    # Fallback: wbudowany minimalny frontend czatu (bez zależności)
+    html = """
+<!doctype html>
+<html lang=pl><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>Mordzix</title>
+<style>
+body{margin:0;background:#0b0b0f;color:#f6f090;font:16px/1.45 -apple-system,Segoe UI,Inter,Roboto,sans-serif}
+#app{display:flex;flex-direction:column;height:100dvh}
+#chat{flex:1;overflow:auto;padding:16px}
+.msg{max-width:70ch;margin:8px 0;padding:10px 12px;border-radius:12px;border:1px solid #2a2a34;background:#14141d;white-space:pre-wrap}
+.user{margin-left:auto;background:#1d1d28}
+#bar{display:flex;gap:8px;padding:12px;border-top:1px solid #2a2a34;background:#0f0f15}
+#bar input{flex:1;padding:10px;border:1px solid #2a2a34;border-radius:10px;background:#14141d;color:#f6f090}
+#bar button{padding:10px 14px;border-radius:10px;border:1px solid #ffd84a;background:#ffd84a;color:#000;cursor:pointer}
+</style></head>
+<body><div id=app>
+<div id=chat></div>
+<form id=bar><input id=msg placeholder="Napisz..." autocomplete=off><button type=submit>Wyślij</button></form>
+</div>
+<script>
+const chat=document.getElementById('chat');
+const msg=document.getElementById('msg');
+const form=document.getElementById('bar');
+const BASE=location.origin;let AUTH=localStorage.getItem('AUTH_TOKEN')||'';
+if(!AUTH){AUTH=prompt('AUTH_TOKEN?')||'';localStorage.setItem('AUTH_TOKEN',AUTH)}
+function add(role,content){const d=document.createElement('div');d.className='msg '+role;d.textContent=content;chat.appendChild(d);chat.scrollTop=chat.scrollHeight}
+form.addEventListener('submit',async(e)=>{e.preventDefault();const t=msg.value.trim();if(!t)return;add('user',t);msg.value='';
+  try{
+    const p={user:'user',messages:[{role:'user',content:t}]};
+    const r=await fetch(BASE+'/api/assistant/chat',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+AUTH},body:JSON.stringify(p)});
+    const j=await r.json(); add('assistant', j.answer||JSON.stringify(j));
+  }catch(err){add('assistant','Błąd: '+err.message)}
+});
+</script></body></html>
+"""
+    return HTMLResponse(content=html, status_code=200)
 
 # =========================
 # RATE LIMIT
@@ -172,6 +286,37 @@ def _init_db():
     );""")
     cur.execute("INSERT OR IGNORE INTO psy_state VALUES(1,0.0,0.6,0.6,0.55,0.62,0.55,0.63,0.44,'rzeczowy',?)",(time.time(),))
     c.commit(); c.close()
+
+# =========================
+# STM (Short-Term Memory) – proste API nad tabelą `memory`
+# =========================
+def stm_add(role: str, content: str, user: str = "user") -> str:
+    if not content:
+        return ""
+    mid = str(uuid.uuid4())
+    conn = _db(); cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO memory(id, user, role, content, ts) VALUES(?,?,?,?,?)",
+        (mid, user, role or "user", content, time.time()),
+    )
+    conn.commit(); conn.close()
+    return mid
+
+def stm_get_context(limit: int = 20, user: str = "user") -> List[Dict[str, str]]:
+    conn = _db(); cur = conn.cursor()
+    rows = cur.execute(
+        "SELECT role, content FROM memory WHERE user=? ORDER BY ts DESC LIMIT ?",
+        (user, int(max(1, limit))),
+    ).fetchall()
+    conn.close()
+    # zwróć od najstarszego do najnowszego w obrębie kontekstu
+    out = [{"role": r["role"], "content": r["content"]} for r in reversed(rows or [])]
+    return out
+
+def stm_clear(user: str = "user") -> int:
+    conn = _db(); cur = conn.cursor()
+    cur.execute("DELETE FROM memory WHERE user=?", (user,))
+    conn.commit(); n = cur.rowcount; conn.close(); return int(n or 0)
 
 # Funkcja do automatycznego ładowania danych z seed_facts.jsonl przy starcie
 def _preload_seed_facts():
@@ -1704,7 +1849,7 @@ def _cors():
 
 def http_get(url: str, headers=None, timeout=HTTP_TIMEOUT) -> str:
     h = dict(HEADERS); h.update(headers or {})
-    req = Request(url, headers=h, method="GET")
+    req = UrlRequest(url, headers=h, method="GET")
     with urlopen(req, timeout=timeout) as r:
         return r.read().decode("utf-8","replace")
 
@@ -1715,7 +1860,7 @@ def http_get_json(url: str, headers=None, timeout=HTTP_TIMEOUT) -> Any:
 
 def http_post_json(url: str, payload: dict, headers=None, timeout=HTTP_TIMEOUT) -> Any:
     h = dict(JSON_HEAD); h.update(headers or {})
-    req = Request(url, data=json.dumps(payload).encode("utf-8"), headers=h, method="POST")
+    req = UrlRequest(url, data=json.dumps(payload).encode("utf-8"), headers=h, method="POST")
     with urlopen(req, timeout=timeout) as r:
         raw = r.read().decode("utf-8","replace")
         try: return json.loads(raw)
@@ -1968,6 +2113,14 @@ def ltm_soft_delete(id_or_text: str)->int:
     c.execute("UPDATE facts SET deleted=1 WHERE id=?", (tid,))
     conn.commit(); n=c.rowcount; conn.close(); return n
 
+def ltm_delete(id: str) -> Dict[str, Any]:
+    """Soft delete by id (sha1)."""
+    try:
+        n = ltm_soft_delete(id)
+        return {"ok": True, "deleted": int(n)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 def _fts_safe_query(q: str) -> str:
     toks=[t for t in _tok(q) if t]
     if not toks: return '""'
@@ -2067,7 +2220,7 @@ def ltm_search_hybrid(q: str, limit: int = 30)->List[Dict[str,Any]]:
     except Exception:
         s_emb=[0.0]*len(docs)
 
-    scores=_blend_scores(s_tfidf, s_bm25, s_emb, wt=(0.44,0.32,0.24))
+    scores=_blend_scores(s_tfidf, s_bm25, s_emb, wt=(0.48,0.30,0.22))
     pack=[(scores[i], rows[i]) for i in range(len(rows))]
     pack.sort(key=lambda x:x[0], reverse=True)
 
@@ -2075,6 +2228,36 @@ def ltm_search_hybrid(q: str, limit: int = 30)->List[Dict[str,Any]]:
     for sc,r in pack[:limit]:
         res.append({"id":r["id"],"text":r["text"],"tags":r["tags"],"conf":r["conf"],"created":r["created"],"score":float(sc)})
     return res
+
+def ltm_context_for_prompt(query: str, limit: int = 8) -> str:
+    """
+    Buduje zwięzły blok kontekstu z LTM do podania jako system prompt.
+    Priorytet: najwyższy score, bez powtórzeń, krótkie zdania.
+    """
+    items = ltm_search_hybrid(query, limit=max(limit, 12))
+    # Opcjonalny reranker – DeepInfra
+    if RERANK_URL and RERANK_KEY and items:
+        try:
+            import httpx
+            headers={"Authorization": f"Bearer {RERANK_KEY}", "Content-Type":"application/json"}
+            docs=[it.get("text","") for it in items]
+            payload={"model": RERANK_MODEL, "query": query, "documents": docs}
+            with httpx.Client(timeout=15.0) as c:
+                r=c.post(RERANK_URL, headers=headers, json=payload)
+                if r.status_code==200:
+                    j=r.json() or {}
+                    order=[d.get("index",i) for i,d in enumerate(j.get("results",[]))]
+                    items=[items[i] for i in order if i < len(items)]
+        except Exception:
+            pass
+    seen = set(); lines = []
+    for it in items:
+        t = (it.get("text") or "").strip()
+        key = re.sub(r"\W+"," ", t.lower())[:120]
+        if not t or key in seen: continue
+        seen.add(key)
+        lines.append(t)
+    return "\n".join(lines[:limit])
 
 # =========================
 # STM ROTACJA 160→(100→LTM)+(60 w STM)
@@ -2238,31 +2421,73 @@ def psy_tick():
 # =========================
 # LLM z zaawansowanym cache
 # =========================
-_LLM_CACHE = {}
+_LLM_CACHE: Dict[str, Tuple[float, str]] = {}
 _LLM_CACHE_HITS = 0
 _LLM_CACHE_MISSES = 0
+_LLM_CACHE_TTL_S = int(os.getenv("LLM_CACHE_TTL_S", "120"))
+
+_LLM_CONCURRENCY = int(os.getenv("LLM_CONCURRENCY", "4"))
+try:
+    _LLM_SEM = asyncio.Semaphore(_LLM_CONCURRENCY)
+except Exception:
+    _LLM_SEM = None
 
 import httpx, os, json
 
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepinfra.com/v1/openai")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
-LLM_MODEL = os.getenv("LLM_MODEL", "zai-org/GLM-4.6")
+# Użyj globalnych ustawień LLM z sekcji KONFIG
 LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "zai-org/GLM-4.5-Air")
-LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))
+LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", str(LLM_TIMEOUT)))
 
-def _llm_request(messages: list[dict], model: str) -> str:
-    """Wysyła żądanie do DeepInfra dla danego modelu."""
+def _llm_cache_key(messages: list[dict], model: str, temperature: float | None, max_tokens: int | None) -> str:
+    safe = [{"role": m.get("role",""), "content": (m.get("content","") or "")[:4000]} for m in messages or []]
+    blob = json.dumps({"m": safe, "model": model, "t": temperature, "n": max_tokens}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()
+
+def _httpx_llm_client() -> httpx.Client:
+    # singleton client for keep-alive
+    global __LLM_CLIENT
+    cli = globals().get("__LLM_CLIENT")
+    if cli and not cli.is_closed:
+        return cli
+    cli = httpx.Client(timeout=LLM_TIMEOUT)
+    globals()["__LLM_CLIENT"] = cli
+    return cli
+
+def _llm_request(messages: list[dict], model: str, temperature: float | None = None, max_tokens: int | None = None, stop: list[str] | None = None) -> str:
+    if not LLM_API_KEY:
+        raise RuntimeError("LLM_API_KEY missing")
     url = f"{LLM_BASE_URL}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
-        "Content-Type": "application/json",
-    }
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
     payload = {"model": model, "messages": messages}
-    with httpx.Client(timeout=LLM_TIMEOUT) as client:
-        r = client.post(url, headers=headers, json=payload)
-        r.raise_for_status()
-        data = r.json()
-        return data["choices"][0]["message"]["content"]
+    if temperature is not None: payload["temperature"] = float(temperature)
+    if max_tokens is not None: payload["max_tokens"] = int(max_tokens)
+    if stop: payload["stop"] = stop
+
+    key = _llm_cache_key(messages, model, temperature, max_tokens)
+    now = time.time()
+    hit = _LLM_CACHE.get(key)
+    if hit and (now - hit[0] <= _LLM_CACHE_TTL_S):
+        global _LLM_CACHE_HITS
+        _LLM_CACHE_HITS += 1
+        return hit[1]
+
+    global _LLM_CACHE_MISSES
+    _LLM_CACHE_MISSES += 1
+
+    client = _httpx_llm_client()
+    last_err = None
+    for attempt in range(3):
+        try:
+            r = client.post(url, headers=headers, json=payload)
+            r.raise_for_status()
+            data = r.json()
+            text = data["choices"][0]["message"]["content"]
+            _LLM_CACHE[key] = (now, text)
+            return text
+        except Exception as e:
+            last_err = e
+            time.sleep(0.25 * (2 ** attempt))
+    raise last_err or RuntimeError("LLM request failed")
 
 def call_llm(messages: list[dict], **opts) -> str:
     """
@@ -2271,16 +2496,45 @@ def call_llm(messages: list[dict], **opts) -> str:
     2️⃣ Jeśli się wywali → próba na fallbacku
     """
     try:
-        return _llm_request(messages, LLM_MODEL)
+        return _llm_request(messages, opts.get("model") or LLM_MODEL, opts.get("temperature"), opts.get("max_tokens"), opts.get("stop"))
     except Exception as e1:
         print(f"[LLM] Główny model padł: {e1} — próbuję fallback {LLM_FALLBACK_MODEL}")
         try:
-            return _llm_request(messages, LLM_FALLBACK_MODEL)
+            return _llm_request(messages, LLM_FALLBACK_MODEL, opts.get("temperature"), opts.get("max_tokens"), opts.get("stop"))
         except Exception as e2:
             print(f"[LLM] Fallback też padł: {e2}")
             return f"[LLM-FAIL] {str(e2)}"
 def call_llm_once(prompt: str, temperature: float=0.8)->str:
-    return call_llm([{"role":"user","content":prompt}], temperature, max_tokens=None)
+    return call_llm([{"role":"user","content":prompt}], temperature=temperature, max_tokens=None)
+
+def call_llm_stream(messages: list[dict], model: str | None = None, temperature: float | None = None, max_tokens: int | None = None):
+    """
+    Generator strumieniujący odpowiedź LLM (delta tekstu), korzysta z OpenAI-compatible stream=true.
+    """
+    if not LLM_API_KEY:
+        # fallback: brak streamu – zwróć całość jako jeden kawałek
+        yield call_llm(messages, model=model or LLM_MODEL, temperature=temperature, max_tokens=max_tokens)
+        return
+    url = f"{LLM_BASE_URL}/chat/completions"
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": model or LLM_MODEL, "messages": messages, "stream": True}
+    if temperature is not None: payload["temperature"] = float(temperature)
+    if max_tokens is not None: payload["max_tokens"] = int(max_tokens)
+    with httpx.stream("POST", url, headers=headers, json=payload, timeout=LLM_TIMEOUT) as r:
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if not line: continue
+            if line.startswith("data: "):
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(data)
+                    delta = (((obj.get("choices") or [{}])[0]).get("delta") or {}).get("content")
+                    if delta:
+                        yield delta
+                except Exception:
+                    continue
 
 # =========================
 # Pisanie – BOOST + Aukcje PRO
@@ -2327,6 +2581,29 @@ def _anti_repeat(s: str)->str:
         if key in seen: continue
         seen.add(key); out.append(ln)
     return "\n".join(out)
+
+def _anti_water(s: str)->str:
+    """Usuwa wodę: puste wtręty, zbyt ogólne zdania, tautologie, wydłużone frazy."""
+    if not s: return s
+    # Usuń duplikaty spacji i dekoracje
+    t=_normalize_ws(s)
+    # Wytnij typowe wypełniacze
+    fillers=(
+        r"(?i)w dzisiejszych czasach|warto zaznaczyć|należy pamiętać|jak wiadomo|generalnie|na koniec|podsumowując",
+    )
+    for pat in fillers:
+        t=re.sub(pat, "", t)
+    # Skróć akapity > 1200 znaków (bez utraty sensu)
+    paras=[p.strip() for p in t.split("\n\n") if p.strip()]
+    cleaned=[]
+    for p in paras:
+        if len(p)>1400:
+            p=p[:1200].rsplit(".",1)[0]+"."
+        cleaned.append(p)
+    t="\n\n".join(cleaned)
+    # Zbij powtórzenia linii
+    t=_anti_repeat(t)
+    return t
 
 def _bounded_length(s: str, target: str)->str:
     caps={"krótki":800,"średni":1600,"długi":3000,"bardzo długi":6000}
@@ -2542,7 +2819,7 @@ def suggest_tags_for_auction(title:str, desc:str) -> List[str]:
 # =========================
 import httpx
 import autonauka_pro as AUTOPRO
-from writer_pro import writer_router
+# from writer_pro import writer_router  # usunięto zbędny duplikat importu
 
 def extract_text(html: str) -> Tuple[str,str]:
     try:
@@ -2560,6 +2837,19 @@ def chunk_text(text: str, max_words: int = 240, overlap: int = 60) -> List[str]:
     while i<len(words):
         out.append(" ".join(words[i:i+max_words])); i+=step
     return out
+
+# =========================
+# Sports wrapper (FastAPI compatibility)
+# =========================
+def sports_scores(league: str = "nba") -> Dict[str, Any]:
+    """Wrapper do espn_scores z parametrem league.
+    Obsługuje: nba, nfl, nhl, mlb, epl, laliga, seriea, bundesliga.
+    """
+    kind = (league or "nba").lower()
+    try:
+        return {"ok": True, **espn_scores(kind)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 async def serpapi_search(q: str, engine: str = "google", params: dict = None) -> dict:
     if not SERPAPI_KEY: return {"ok": False, "error": "SERPAPI_KEY missing"}
@@ -3197,7 +3487,7 @@ def db_backup()->str:
 
 # ──────────────────────────────────────────────────────────────────────────────
 # ENV dla autonauka
-SERPAPI_KEY = (os.getenv("SERPAPI_KEY") or os.getenv("FIRECRAWL_SERPAPI_KEY")))
+SERPAPI_KEY = (os.getenv("SERPAPI_KEY") or os.getenv("FIRECRAWL_SERPAPI_KEY"))
 FIRECRAWL_KEY = (os.getenv("FIRECRAWL_API_KEY") or os.getenv("FIRECRAWL_KEY") or os.getenv("FIRECRAWL"))
 
 WEB_HTTP_TIMEOUT = float(os.getenv("WEB_HTTP_TIMEOUT", "45"))
@@ -3213,9 +3503,7 @@ VOTE_MIN_SOURCES = int(os.getenv("VOTE_MIN_SOURCES", "2"))
 
 AUTO_TAGS = os.getenv("AUTO_TAGS", "autonauka,web,evidence")
 
-LLM_BASE_URL = os.getenv("LLM_BASE_URL")
-LLM_API_KEY=w52XW0XN6zoV9hdY8OONhLu6tvnFaXbZ
-LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-4B-Instruct")
+# Korzystamy z globalnych LLM_* z sekcji KONFIG (bez redefinicji)
 
 CONCURRENCY = int(os.getenv("AUTON_CONCURRENCY", "8"))
 USER_AGENT = os.getenv("AUTON_UA", "Autonauka/1.0")
@@ -5393,9 +5681,7 @@ def autonauka(query: str, topk: int = 8, deep_research: bool = False):
             saver = globals().get("ltm_add", None)
             if callable(saver):
                 ctx = res.get("context","")
-                saver(f"[autonauka] {query}
-
-{ctx[:2000]}", tags="autonauka,web,ctx", conf=0.6)
+                saver(f"[autonauka] {query}\n\n{ctx[:2000]}", tags="autonauka,web,ctx", conf=0.6)
                 for src in (res.get("sources") or [])[:max(1, int(topk or 8))]:
                     t = (src.get("title") or "").strip()
                     u = (src.get("url") or "").strip()
