@@ -76,8 +76,30 @@ async def llm_chat(body: ChatBody, req: Request, _=Depends(_auth)):
 async def research_sources(q: str, topk: int = 8, deep: bool = False, _=Depends(_auth)):
     if not hasattr(M, "autonauka"):
         raise HTTPException(500, "autonauka() not available")
+    
+    # Rate limiting  
+    if MIDDLEWARE_AVAILABLE:
+        user_id = "api-user"
+        allowed, retry_after = rate_limiter.check_limit(user_id, "research")
+        if not allowed:
+            raise HTTPException(429, f"Rate limit exceeded. Retry after {retry_after}s")
+    
+    # Check cache
+    cache_params = {"q": q, "topk": topk, "deep": deep}
+    if MIDDLEWARE_AVAILABLE:
+        cached = search_cache.get("research", cache_params)
+        if cached:
+            cached["from_cache"] = True
+            return cached
+    
     data = await M.autonauka(q, topk=topk, deep_research=deep)
-    return {"ok": True, **(data or {})}
+    response = {"ok": True, **(data or {})}
+    
+    # Save to cache
+    if MIDDLEWARE_AVAILABLE:
+        search_cache.set("research", cache_params, response)
+    
+    return response
 
 @router.get("/search/answer")
 def search_answer(q: str, deep: bool = False, _=Depends(_auth)):
@@ -90,7 +112,23 @@ def search_answer(q: str, deep: bool = False, _=Depends(_auth)):
 def ltm_add_api(body: T.Dict[str, T.Any], _=Depends(_auth)):
     if not hasattr(M, "ltm_add"):
         raise HTTPException(500, "ltm_add() not available")
-    M.ltm_add(body.get("text",""), tags=body.get("tags",""), conf=float(body.get("conf",0.7)))
+    
+    text = body.get("text", "")
+    tags = body.get("tags", [])
+    source = body.get("source", "api")
+    conf = float(body.get("conf", 0.7))
+    
+    # Convert tags list to comma-separated string if needed
+    if isinstance(tags, list):
+        tags_str = ",".join(str(t) for t in tags)
+    else:
+        tags_str = str(tags)
+    
+    # Add source to tags
+    if source:
+        tags_str = f"{tags_str},{source}" if tags_str else source
+    
+    M.ltm_add(text, tags=tags_str, conf=conf)
     return {"ok": True}
 
 @router.get("/ltm/search")

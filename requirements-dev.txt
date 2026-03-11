@@ -1,0 +1,17 @@
+# Development dependencies
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-asyncio==0.21.1
+
+# Code quality
+black==23.12.1
+ruff==0.1.9
+mypy==1.7.1
+
+# Type stubs
+types-requests==2.31.0.10
+
+# Pre-commit
+pre-commit==3.6.0
